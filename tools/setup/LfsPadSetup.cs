@@ -254,15 +254,19 @@ namespace LfsPadSetup
         private static string RunOperation(string root, bool uninstall)
         {
             bool update = !uninstall && HasInstallation(root);
+            if (root.IndexOfAny(Path.GetInvalidPathChars()) >= 0 || root.Contains("\""))
+                throw new InvalidOperationException("Oyun klasörünün yolu geçersiz.");
             string staging = Path.Combine(Path.GetTempPath(), "LfsPadSetup-" + Guid.NewGuid().ToString("N"));
             string tools = Path.Combine(staging, "tools");
             string scriptName = uninstall ? "uninstall.ps1" : "install.ps1";
             string script = Path.Combine(tools, scriptName);
+            string common = Path.Combine(tools, "install-common.ps1");
             string dll = Path.Combine(staging, "dinput8.dll");
             string ini = Path.Combine(staging, "LfsPad.ini");
             try
             {
                 Directory.CreateDirectory(tools);
+                Extract("install-common.ps1", common);
                 Extract(scriptName, script);
                 if (!uninstall)
                 {
@@ -314,6 +318,7 @@ namespace LfsPadSetup
                 try
                 {
                     File.Delete(script);
+                    File.Delete(common);
                     File.Delete(dll);
                     File.Delete(ini);
                     if (Directory.Exists(tools))

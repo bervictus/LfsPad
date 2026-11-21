@@ -4,7 +4,7 @@ LfsPad, Windows için 32 bit LFS 0.8C38 ile çalışır. Bu sürümün SHA-256 �
 
 ## Yükleme ve çizim
 
-`dinput8.dll` altı DirectInput dışa aktarımını sağlar. Önce `LfsPad.previous.dll`, yoksa mutlak System32 yolu yüklenir. Bu kurulumda önceki DLL RFS yükleyicisidir. DLL_PROCESS_ATTACH yalnız çözülmüş DXGI importunu değiştirir; dosya doğrulaması, RFS yükleme ve grafik kurulumu loader lock dışında yapılır.
+`dinput8.dll` altı DirectInput dışa aktarımını sağlar. Önce `LfsPad.previous.dll`, yoksa mutlak System32 yolu yüklenir. Bu kurulumda önceki DLL RFS yükleyicisidir. DLL_PROCESS_ATTACH aşamasında DXGI ve Winsock çağrıları yönlendirilir. Dosya doğrulaması, RFS yükleme ve grafik kurulumu bu çağrılar oyun tarafından kullanıldığında Windows yükleyici kilidinin dışında yapılır.
 
 Ana modülün `CreateDXGIFactory1` importu, factory `CreateSwapChain`, swapchain `Present` ve `ResizeBuffers` yollarına bağlanılır. Dear ImGui DX11 backend çizim durumunu korur; render target ve depth view ayrıca saklanıp geri verilir. Resize öncesi kendi render target referansı bırakılır. Gerçek WM_DESTROY/WM_NCDESTROY ve DLL ayrılması giriş yakalamayı kapatır. WM_CLOSE tek başına kapanış sayılmaz.
 
@@ -58,7 +58,11 @@ Sürüş LFS’nin kendi DirectInput aygıtı üzerinden devam eder. Benzersiz P
 
 Doğrudan tuş ataması, atanabilen tüm tuşlar bırakılınca tek bir yeni tuş basışını kabul eder. Aynı örnekte birden çok tuş varsa atama, tuşlar bırakılana kadar bekler. Atama sırasında normal ayar ve menü komutları bekler. Odak kaybı, cihaz kaybı veya yuva değişimi bekleyen atamayı iptal eder. Dolu atamalar mevcut eşleme değiştirme yordamını kullanır. Eşlemeler A onayında INI'ye yazılır.
 
-InSim v10 UDP bağlantısı yalnız loopback'te oyun/menü/metin durumunu alır; native öğeleri sağlamaz. STA ve CIM paketleri kullanılır. Bilinmeyen veya beş saniye güncellenmeyen durumda normal sürüş girişleri serbest bırakılır. Native metin penceresi ayrıca algılanır. Soket miras bırakılamaz. Mevcut LfsAutomatic yardımcısının CreateProcessA çağrısında parent handle mirası kapatılır; diğer süreç başlatma çağrıları aynen iletilir.
+### InSim bağlantısı
+
+LfsPad, oyun durumunu InSim v10 üzerinden UDP ile okur. LFS 0.8C38’de modun kullandığı portun TCP ve UDP dinleyicileri varsayılan olarak `127.0.0.1` adresine bağlanır. Başka bir bilgisayardaki InSim aracı bu porta bağlanacaksa `LfsPad.ini` dosyasının `[General]` bölümüne `AllowRemoteInSim=1` yazıp LFS’yi yeniden aç. Bu ayar, portun LFS’nin normal ağ ayarlarıyla açılmasını sağlar. LfsPad’in kendi bağlantısı yine yerel kalır.
+
+STA ve CIM paketlerinden oyun, menü ve metin durumu okunur. Her UDP datagramının paket sınırları işlenmeden önce doğrulanır. Bilinmeyen veya beş saniye güncellenmeyen durumda normal sürüş girişleri serbest bırakılır. Native metin penceresi ayrıca algılanır. Soket miras bırakılamaz. Mevcut LfsAutomatic yardımcısının CreateProcessA çağrısında parent handle mirası kapatılır; diğer süreç başlatma çağrıları aynen iletilir.
 
 DirectInput vtable'ları nesne kimliğini koruyacak şekilde yerinde yönlendirilir. XInput olarak tanınan cihazlarda `SetDataFormat` ile oyunun istediği kontrol konumları kaydedilir. Menüde düğmeler ve POV nötrlenir. Yarış içi durdurma menüsünde eksenler de nötrlenir. Konum eksenleri `DIPROP_RANGE` ile okunan aralığın merkezine, göreli ve türetilmiş eksenler sıfıra alınır. `GetDeviceData` olayları da aynı menü politikasına göre süzülür. Menüden sürüşe geçişte tüketilmiş düğmeler bırakılana kadar düğme filtresi sürer.
 
@@ -98,6 +102,8 @@ ZIP paketinde de aynı betikler bulunur. LFS kapalıyken paketi çıkardığın 
 # Kaldırma
 ./tools/uninstall.ps1 -GameDirectory 'C:\LFS'
 ```
+
+Kurucu, mevcut DLL’leri ve yedekleri kayıtlı SHA-256 özetleriyle karşılaştırır. Bir yükleyici, birebir aynı eski DLL’yi geri koyduysa **Güncelle** ile LfsPad yeniden etkinleşir. Değiştirilmiş DLL’ler korunur. Kaldırma sırasında güncel `LfsPad.ini` dosyası oyun klasöründe kalır.
 
 Yedekler oyun klasöründe `addons/LfsPad/backups` altında tutulur.
 

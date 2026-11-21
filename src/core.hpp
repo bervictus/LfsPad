@@ -78,9 +78,9 @@ struct GarageViewInput {
   }
 };
 struct Item {
-  Rect rect;
-  int id;
-  std::uint32_t signature;
+  Rect rect{};
+  int id = 0;
+  std::uint32_t signature = 0;
   unsigned nativeType = 0;
   bool tab = false, active = false;
 };

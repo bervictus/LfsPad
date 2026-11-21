@@ -1,5 +1,12 @@
 # LfsPad test notları
 
+## LfsPad 0.1.1
+
+- Ayrı bir 32 bit LFS 0.8C38 kopyasını InSim açıkken başlattık. Windows, test portunun TCP ve UDP dinleyicilerini `127.0.0.1` üzerinde gösterdi. Mod yerel bağlantıyı kurdu. F710 algılandı ve DirectInput, gaz ve fren için iki ayrı eksen sundu.
+- Çekirdek ve sanal kontrolcü testleri geçti. UDP testleri, yarım veya hatalı uzunluktaki datagramların sonraki datagramla birleştirilmediğini kontrol eder.
+- Kurulum testleri Windows PowerShell ve PowerShell 7’de çalıştırıldı. Kurucu, değiştirilmiş yedekleri ve dizin bağlantılarını reddetti. Eski RFS yükleyicisi birebir geri konduğunda güncelleme çalıştı. Kaldırma, son kullanıcı ayarlarını ve betik kodlamasını korudu.
+- SDL ve Dear ImGui’nin yayımlanmış güvenlik duyurularını kontrol ettik. Bu sürümde PlayStation için sanal kontrolcü testi yapıldı. Fiziksel PlayStation USB ve Bluetooth testleri bekliyor.
+
 ## LfsPad 0.1.0 — İlk herkese açık sürüm
 
 - 183 çekirdek testi ve 22 kurulum kontrolü geçti. Gaz ve fren için üç durumu denedik. Her tetiğe tek başına sonuna kadar bastık, ikisini farklı seviyelerde tuttuk ve sürüş girdisi engellendiğinde iki değerin de sıfıra döndüğünü kontrol ettik.

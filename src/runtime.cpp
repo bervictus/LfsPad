@@ -149,7 +149,7 @@ static bool mouseDown = false, cursorDragging = false, wasMenu = false,
 static unsigned ticks = 0;
 static int inputSlot = -1;
 static bool missingSlot = false;
-static bool shortcutEditor = false, shortcutSaveFailed = false;
+static bool shortcutEditor = false, settingsSaveFailed = false;
 static int shortcutEditMenu = 0, shortcutEditRow = 0;
 static ShortcutMappings shortcutEditDraft, savedShortcuts;
 static ShortcutDirections directionsBeforeEdit;
@@ -218,7 +218,7 @@ static std::wstring ini;
 static constexpr wchar_t shortcutSection[] = L"MenuShortcuts";
 static void loadConfig() {
   missingSlot = false;
-  shortcutEditor = shortcutSaveFailed = false;
+  shortcutEditor = settingsSaveFailed = false;
   ini = path(L"LfsPad.ini");
   cfg.slot = std::clamp(
       (int)GetPrivateProfileIntW(L"Input", L"Controller", 0, ini.c_str()) - 1,
@@ -272,9 +272,10 @@ static bool saveConfig() {
       return false;
     savedShortcuts = cfg.shortcuts;
   }
-  auto put = [](const wchar_t *k, int v) {
-    WritePrivateProfileStringW(L"Input", k, std::to_wstring(v).c_str(),
-                               ini.c_str());
+  bool inputSaved = true;
+  auto put = [&](const wchar_t *k, int v) {
+    if (!WritePrivateProfileStringW(L"Input", k, std::to_wstring(v).c_str(), ini.c_str()))
+      inputSaved = false;
   };
   put(L"Controller", cfg.slot + 1);
   put(L"DeadzonePercent", int(cfg.deadzone * 100 + .5f));
@@ -284,7 +285,7 @@ static bool saveConfig() {
   put(L"RumbleStrength", cfg.rumbleStrength);
   for (int i = 0; i < 9; ++i)
     put(bindingKeys[i], cfg.bindings[i]);
-  return true;
+  return inputSaved;
 }
 static bool validMenuRect(const Rect &r) {
   return std::isfinite(r.l) && std::isfinite(r.t) && std::isfinite(r.r) &&
@@ -314,10 +315,10 @@ static bool gather(uintptr_t modal, bool inGarageMode) {
   raceFinishItem = -1;
   raceResumeItem = -1;
   bool raceMenu = false;
-  int count = *(int *)(imageBase + 0x28c994);
+  const int count = *reinterpret_cast<const int *>(imageBase + 0x28c994);
   if (count < 0 || count > 1024)
     return false;
-  auto native = (const NativeItem *)(imageBase + 0x28ca20);
+  auto native = reinterpret_cast<const NativeItem *>(imageBase + 0x28ca20);
   const auto raceMenuCallback = uintptr_t(imageBase + 0x8e310);
   bool viewerLight = false, viewerLod = false;
   for (int i = 0; modal && i < count; ++i) {
@@ -1115,8 +1116,8 @@ static void drawSettings(float l, float t, float w) {
   if (missingSlot)
     label(l + 22, t + 320, "Seçtiğin kontrolcüyü bağla.",
           IM_COL32(255, 210, 90, 255));
-  else if (shortcutSaveFailed)
-    label(l + 22, t + 320, "Kısayollar kaydedilemedi. A ile tekrar dene.",
+  else if (settingsSaveFailed)
+    label(l + 22, t + 320, "Ayarlar kaydedilemedi. A ile tekrar dene.",
           IM_COL32(255, 210, 90, 255));
 }
 static constexpr ImU32 meterActive = IM_COL32(78, 223, 186, 255),
@@ -1322,7 +1323,7 @@ static void drawFinishHold(const Item &item, float width, double now) {
   std::snprintf(hint, sizeof(hint), "Yarışı bitirmek için %s tuşunu basılı tut",
                 bindingName(Confirm));
   const float w = std::min(ImGui::CalcTextSize(hint).x + 24, width - 20);
-  const float left = std::clamp(button.x, 10.f, width - w - 10);
+  const float left = std::clamp(button.x, 10.f, std::max(10.f, width - w - 10));
   const float top = std::max(10.f, button.y - 54);
   panel(left, top, left + w, top + 44);
   auto draw = ImGui::GetForegroundDrawList();
@@ -1360,9 +1361,6 @@ static bool initialize(IDXGISwapChain *swap) {
     return false;
   device->GetImmediateContext(&context);
   window = desc.OutputWindow;
-  previousWndProc =
-      (WNDPROC)SetWindowLongPtrA(window, GWLP_WNDPROC, (LONG_PTR)windowProc);
-  activeSwap = swap;
   ImGui::CreateContext();
   auto &io = ImGui::GetIO();
   io.IniFilename = nullptr;
@@ -1373,8 +1371,22 @@ static bool initialize(IDXGISwapChain *swap) {
                                ranges);
   if (io.Fonts->Fonts.empty())
     io.Fonts->AddFontDefault();
-  if (!ImGui_ImplDX11_Init(device, context))
+  if (!ImGui_ImplDX11_Init(device, context)) {
+    ImGui::DestroyContext();
+    context->Release();
+    device->Release();
     return false;
+  }
+  previousWndProc = reinterpret_cast<WNDPROC>(
+      SetWindowLongPtrA(window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(windowProc)));
+  if (!previousWndProc) {
+    ImGui_ImplDX11_Shutdown();
+    ImGui::DestroyContext();
+    context->Release();
+    device->Release();
+    return false;
+  }
+  activeSwap = swap;
   loadConfig();
   log("LfsPad " LFSPAD_VERSION " active: PID=%lu HWND=%p Direct3D11, native table "
       "RVA=28ca20",
@@ -1416,7 +1428,7 @@ void frame(IDXGISwapChain *swap) {
     releaseMouse();
   auto sim = pollSim();
   const auto replay = replayState();
-  const auto modal = *(const uintptr_t *)(imageBase + 0x49c298);
+  const auto modal = *reinterpret_cast<const uintptr_t *>(imageBase + 0x49c298);
   const bool text = modal == uintptr_t(imageBase + 0x95ec20);
   const bool wasGarageRoot = garageRoot, wasGarageViewer = garageViewer;
   const bool recoveringGarageFocus = garageSkins || garageModal || wasGarageRoot;
@@ -1923,8 +1935,8 @@ void frame(IDXGISwapChain *swap) {
                         readController(controllerForPreference(cfg.slot, activeSlot),
                                        candidate) != ERROR_SUCCESS;
           if (!missingSlot) {
-            shortcutSaveFailed = !saveConfig();
-            if (!shortcutSaveFailed) {
+            settingsSaveFailed = !saveConfig();
+            if (!settingsSaveFailed) {
               inputSlot = cfg.slot;
               activeSlot = -1;
               settings = false;
@@ -2317,9 +2329,12 @@ void frame(IDXGISwapChain *swap) {
     drawRecovery(width, height, recovery.phase, session, recoveryConnected, canTogglePause);
   if (quickOpen)
     drawQuickMenu(width, height, quickAction);
-  if (foreground && !sim.known)
-    label(20, 20, "LFS PAD: InSim bekleniyor (29999)",
-          IM_COL32(255, 210, 90, 255));
+  if (foreground && !sim.known) {
+    char hint[64];
+    std::snprintf(hint, sizeof(hint), "LfsPad InSim bağlantısı bekliyor (%u)",
+                  static_cast<unsigned>(inSimPort()));
+    label(20, 20, hint, IM_COL32(255, 210, 90, 255));
+  }
   if (cfg.diagnostics && ticks++ % 300 == 0)
     log("Frame: flags=%u mode=%u menu=%d raceMenu=%d text=%d items=%zu "
         "selection=%d rumble=%d local=%u viewed=%u",

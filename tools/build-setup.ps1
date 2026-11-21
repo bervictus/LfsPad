@@ -12,6 +12,7 @@ if (!(Test-Path -LiteralPath $compiler)) { throw 'The .NET Framework C# compiler
 $resources=@(
     @{File='dinput8.dll'; Name='dinput8.dll'},
     @{File='LfsPad.ini'; Name='LfsPad.ini'},
+    @{File='tools\install-common.ps1'; Name='install-common.ps1'},
     @{File='tools\install.ps1'; Name='install.ps1'},
     @{File='tools\uninstall.ps1'; Name='uninstall.ps1'},
     @{File='Dear-ImGui-LICENSE.txt'; Name='Dear-ImGui-LICENSE.txt'},

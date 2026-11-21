@@ -8,19 +8,19 @@
 namespace pad {
 enum class ShortcutScreen { Main, SinglePlayer, Garage, Options, Race, None };
 struct ShortcutTarget {
-  const wchar_t *id;
-  const char *label;
+  const wchar_t *id = nullptr;
+  const char *label = nullptr;
   std::uintptr_t callback = 0;
   unsigned type = 0, value = 0;
 };
 using ShortcutDirections = std::array<int, 4>;
 inline constexpr ShortcutDirections defaultShortcutDirections{1, 2, 3, 4};
 struct ShortcutMenu {
-  const wchar_t *key;
-  const char *label;
-  int count;
+  const wchar_t *key = nullptr;
+  const char *label = nullptr;
+  int count = 0;
   // Index zero is disabled. The next four entries are the default directions.
-  std::array<ShortcutTarget, 6> targets;
+  std::array<ShortcutTarget, 6> targets{};
   std::uintptr_t ownerRva = 0;
 };
 inline constexpr ShortcutTarget shortcutOff{L"off", "Kapalı"};

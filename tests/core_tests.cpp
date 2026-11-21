@@ -1,4 +1,6 @@
 #include "core.hpp"
+#include "insim_packets.hpp"
+#include <limits>
 #include "rumble.hpp"
 #include "shortcuts.hpp"
 #include <cstdlib>
@@ -13,6 +15,21 @@ void check(bool b, const char *label) {
 }
 int main() {
   using namespace pad;
+  const unsigned char stateDatagram[28]{7, 5, 1};
+  const unsigned char batchedDatagram[]{1, 3, 1, 0, 2, 64, 1, 0, 3, 0, 0, 0};
+  const unsigned char zeroPacket[]{0, 0, 0, 0};
+  check(validInSimDatagram(stateDatagram, sizeof(stateDatagram)) &&
+            validInSimDatagram(batchedDatagram, sizeof(batchedDatagram)),
+        "complete InSim datagrams can contain one or more packets");
+  check(!validInSimDatagram(zeroPacket, sizeof(zeroPacket)) &&
+            !validInSimDatagram(stateDatagram, 0) &&
+            !validInSimDatagram(stateDatagram, 2) &&
+            !validInSimDatagram(batchedDatagram, sizeof(batchedDatagram) - 1),
+        "reject empty and truncated datagrams without reusing their bytes");
+  const auto invalidMotorLevels = motorLevels(
+      std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(), 100);
+  check(!invalidMotorLevels.left && !invalidMotorLevels.right,
+        "invalid rumble calculations do not reach the controller");
   check(pedalAxis(0, 0, 65535, false) == 0 &&
             pedalAxis(255, 0, 65535, false) == 65535,
         "each pedal reports zero released and full scale fully pressed");

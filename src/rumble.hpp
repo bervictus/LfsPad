@@ -104,8 +104,8 @@ inline bool rumbleWriteDue(bool active, MotorLevels previous, MotorLevels next,
 
 inline MotorLevels motorLevels(float left, float right, int strength) {
   const double scale = 65535.0 * std::clamp(strength, 0, 100) / 100.0;
-  return {std::uint16_t(std::lround(std::clamp(left, 0.f, 1.f) * scale)),
-          std::uint16_t(std::lround(std::clamp(right, 0.f, 1.f) * scale))};
+  return {std::uint16_t(std::lround((std::isfinite(left) ? std::clamp(left, 0.f, 1.f) : 0.f) * scale)),
+          std::uint16_t(std::lround((std::isfinite(right) ? std::clamp(right, 0.f, 1.f) : 0.f) * scale))};
 }
 
 inline constexpr std::uint64_t rumbleTimeout = 160;
@@ -119,8 +119,8 @@ struct DrivingTelemetry {
   }
 };
 
-inline DrivingTelemetry selectRumbleTelemetry(DrivingTelemetry outSim,
-                                             DrivingTelemetry inSim,
+inline DrivingTelemetry selectRumbleTelemetry(const DrivingTelemetry &outSim,
+                                             const DrivingTelemetry &inSim,
                                              std::uint64_t now) {
   // Use wheel data when it is current. InSim is already sampled in the
   // background of the current driving session when the camera changes.

@@ -18,6 +18,14 @@ extern std::atomic<int> pedalSlot;
 extern std::atomic<std::uint64_t> playStationPedals;
 extern std::atomic<bool> stopping;
 std::wstring path(const wchar_t *name);
+inline HMODULE loadSystemLibrary(const wchar_t *name) {
+  wchar_t system[MAX_PATH];
+  const auto length = GetSystemDirectoryW(system, _countof(system));
+  if (!length || length >= _countof(system))
+    return nullptr;
+  const auto library = std::wstring(system, length) + L"\\" + name;
+  return LoadLibraryExW(library.c_str(), nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+}
 void log(const char *fmt, ...);
 bool supportedBuild();
 void installGraphicsHook();
@@ -49,6 +57,7 @@ struct ReplayState {
   bool confirmedAbsent = false;
   unsigned position = 0, duration = 0;
 };
+unsigned short inSimPort();
 SimState pollSim();
 ReplayState replayState();
 bool seekReplay(int direction);

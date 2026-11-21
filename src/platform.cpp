@@ -24,8 +24,10 @@ std::atomic<std::uint64_t> playStationPedals{0};
 std::atomic<bool> stopping{false};
 std::wstring path(const wchar_t *name) {
   wchar_t p[32768];
-  GetModuleFileNameW(self, p, 32768);
-  std::wstring s = p;
+  const DWORD length = GetModuleFileNameW(self, p, _countof(p));
+  if (!length || length >= _countof(p))
+    return {};
+  std::wstring s(p, length);
   return s.substr(0, s.find_last_of(L"\\/") + 1) + name;
 }
 void log(const char *fmt, ...) {
@@ -40,9 +42,11 @@ void log(const char *fmt, ...) {
   std::fputc('\n', f);
   std::fclose(f);
 }
-bool supportedBuild() {
+static bool verifyBuild() {
   wchar_t exe[32768];
-  GetModuleFileNameW(nullptr, exe, 32768);
+  const DWORD length = GetModuleFileNameW(nullptr, exe, _countof(exe));
+  if (!length || length >= _countof(exe))
+    return false;
   FILE *f = _wfopen(exe, L"rb");
   if (!f)
     return false;
@@ -75,11 +79,21 @@ bool supportedBuild() {
       ok ? "PASS" : "UNSUPPORTED - menu adapter disabled");
   return ok;
 }
+bool supportedBuild() {
+  static const bool verified = verifyBuild();
+  return verified;
+}
+
 static bool patch(void **slot, void *value, void **old) {
   DWORD prot;
   if (!VirtualProtect(slot, sizeof(void *), PAGE_READWRITE, &prot))
     return false;
-  *old = InterlockedExchangePointer(slot, value);
+  const auto previous = InterlockedCompareExchangePointer(slot, nullptr, nullptr);
+  if (previous != value) {
+    // Publish the original before another thread can enter the new hook.
+    *old = previous;
+    InterlockedExchangePointer(slot, value);
+  }
   VirtualProtect(slot, sizeof(void *), prot, &prot);
   return true;
 }
@@ -172,7 +186,7 @@ enum class ControlKind { Button, Pov, CenteredAxis, ZeroAxis };
 enum class MeterAxis { None, Steering, Triggers };
 struct Control {
   DWORD offset;
-  ControlKind kind;
+  ControlKind kind = ControlKind::Button;
   DWORD neutral = 0;
   unsigned quickMask = 0;
   MeterAxis meterAxis = MeterAxis::None;
@@ -223,7 +237,7 @@ static bool hasPedalOffsets(const DIDATAFORMAT &format) {
 
 struct PedalEnumeration {
   LPDIENUMDEVICEOBJECTSCALLBACKA callback;
-  void *context;
+  void *context = nullptr;
   bool nativeSlider = false, stopped = false;
 };
 static BOOL CALLBACK enumPedalProbe(const DIDEVICEOBJECTINSTANCEA *item, void *context) {
@@ -400,7 +414,9 @@ static HRESULT STDMETHODCALLTYPE formatHook(void *obj, LPCDIDATAFORMAT format) {
     original = deviceHooks.at(*reinterpret_cast<void ***>(obj)).format;
   }
   auto hr = original(obj, format);
-  if (SUCCEEDED(hr) && format) {
+  if (SUCCEEDED(hr) && format && format->dwSize == sizeof(DIDATAFORMAT) &&
+      format->dwObjSize == sizeof(DIOBJECTDATAFORMAT) &&
+      (format->rgodf || !format->dwNumObjs)) {
     std::lock_guard<std::mutex> lock(hooksMutex);
     auto gamepad = gamepads.find(obj);
     if (gamepad != gamepads.end()) {
@@ -667,17 +683,16 @@ static HRESULT STDMETHODCALLTYPE createHook(void *obj, REFGUID guid, void **out,
 }
 static HMODULE realInput() {
   static HMODULE module = []() {
-    auto prior = LoadLibraryW(path(L"LfsPad.previous.dll").c_str());
+    const auto previous = path(L"LfsPad.previous.dll");
+    auto prior = previous.empty() ? nullptr : LoadLibraryExW(
+        previous.c_str(), nullptr,
+        LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (prior) {
       log("Proxy chain: LfsPad.previous.dll");
       return prior;
     }
-    wchar_t system[MAX_PATH];
-    GetSystemDirectoryW(system, MAX_PATH);
-    std::wstring s = system;
-    s += L"\\dinput8.dll";
     log("Proxy chain: system dinput8.dll");
-    return LoadLibraryW(s.c_str());
+    return loadSystemLibrary(L"dinput8.dll");
   }();
   return module;
 }
@@ -710,7 +725,8 @@ static BOOL WINAPI processHook(LPCSTR app, LPSTR command,
 }
 static void processCompatibility() {
   auto base = (unsigned char *)GetModuleHandleW(nullptr);
-  auto nt = (IMAGE_NT_HEADERS *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+  auto dos = reinterpret_cast<IMAGE_DOS_HEADER *>(base);
+  auto nt = reinterpret_cast<IMAGE_NT_HEADERS *>(base + dos->e_lfanew);
   auto rva = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT]
                  .VirtualAddress;
   for (auto imp = (IMAGE_IMPORT_DESCRIPTOR *)(base + rva); imp->Name; ++imp) {
@@ -745,7 +761,25 @@ static int WSAAPI outSimSendConnected(SOCKET fd, const char *data, int size, int
   return sendOriginal(fd, data, size, flags);
 }
 
-static void observeGameTelemetry() {
+using Bind = decltype(&bind);
+static Bind bindOriginal = nullptr;
+static int WSAAPI localInSimBind(SOCKET fd, const sockaddr *address, int size) {
+  if (address && size >= int(sizeof(sockaddr_in)) && address->sa_family == AF_INET) {
+    const auto &requested = *reinterpret_cast<const sockaddr_in *>(address);
+    if (requested.sin_port == htons(inSimPort()) && supportedBuild()) {
+      static const bool localOnly = GetPrivateProfileIntW(
+          L"General", L"AllowRemoteInSim", 0, path(L"LfsPad.ini").c_str()) != 1;
+      if (!localOnly)
+        return bindOriginal(fd, address, size);
+      auto local = requested;
+      local.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+      return bindOriginal(fd, reinterpret_cast<const sockaddr *>(&local), sizeof(local));
+    }
+  }
+  return bindOriginal(fd, address, size);
+}
+
+static void installNetworkHooks() {
   auto base = reinterpret_cast<unsigned char *>(GetModuleHandleW(nullptr));
   auto dos = reinterpret_cast<IMAGE_DOS_HEADER *>(base);
   auto nt = reinterpret_cast<IMAGE_NT_HEADERS *>(base + dos->e_lfanew);
@@ -799,40 +833,58 @@ static HRESULT WINAPI factoryHook(REFIID iid, void **out) {
   realInput();
   HRESULT hr = factoryOriginal(iid, out);
   static bool supported = supportedBuild();
-  if (supported && SUCCEEDED(hr) && out && *out && !swapOriginal) {
-    processCompatibility();
-    observeGameTelemetry();
-    auto t = *reinterpret_cast<void ***>(*out);
-    patch(t + 10, (void *)swapHook, (void **)&swapOriginal);
-    log("Game DXGI factory hooked");
+  if (supported && SUCCEEDED(hr) && out && *out) {
+    static std::once_flag networkHooks;
+    std::call_once(networkHooks, [] {
+      processCompatibility();
+      installNetworkHooks();
+    });
+    static const bool swapHooked = [&] {
+      auto t = *reinterpret_cast<void ***>(*out);
+      return patch(t + 10, reinterpret_cast<void *>(swapHook),
+                   reinterpret_cast<void **>(&swapOriginal));
+    }();
+    (void)swapHooked;
   }
   return hr;
 }
 // Only exchange an already resolved import here. All loading, hashing and
-// graphics work is deferred to the first factory call outside the Windows
-// loader lock.
+// graphics work is deferred until the game calls an import outside the
+// Windows loader lock.
 static void bootstrap() {
-  auto base = (unsigned char *)GetModuleHandleW(nullptr);
-  auto dos = (IMAGE_DOS_HEADER *)base;
-  auto nt = (IMAGE_NT_HEADERS *)(base + dos->e_lfanew);
-  auto rva = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT]
-                 .VirtualAddress;
+  auto base = reinterpret_cast<unsigned char *>(GetModuleHandleW(nullptr));
+  auto dos = reinterpret_cast<IMAGE_DOS_HEADER *>(base);
+  auto nt = reinterpret_cast<IMAGE_NT_HEADERS *>(base + dos->e_lfanew);
+  const auto rva = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT]
+                       .VirtualAddress;
   if (!rva)
     return;
-  for (auto imp = (IMAGE_IMPORT_DESCRIPTOR *)(base + rva); imp->Name; ++imp) {
-    if (_stricmp((char *)(base + imp->Name), "dxgi.dll") ||
-        !imp->OriginalFirstThunk)
+  for (auto imp = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR *>(base + rva);
+       imp->Name; ++imp) {
+    const auto library = reinterpret_cast<const char *>(base + imp->Name);
+    const bool dxgi = _stricmp(library, "dxgi.dll") == 0;
+    const bool winsock = _stricmp(library, "WS2_32.dll") == 0;
+    if ((!dxgi && !winsock) || !imp->OriginalFirstThunk)
       continue;
-    auto names = (IMAGE_THUNK_DATA *)(base + imp->OriginalFirstThunk);
-    auto addresses = (IMAGE_THUNK_DATA *)(base + imp->FirstThunk);
+    auto names = reinterpret_cast<IMAGE_THUNK_DATA *>(base + imp->OriginalFirstThunk);
+    auto addresses = reinterpret_cast<IMAGE_THUNK_DATA *>(base + imp->FirstThunk);
     for (; names->u1.AddressOfData; ++names, ++addresses) {
-      if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal))
-        continue;
-      auto name = (IMAGE_IMPORT_BY_NAME *)(base + names->u1.AddressOfData);
-      if (std::strcmp((char *)name->Name, "CreateDXGIFactory1") == 0) {
-        patch((void **)&addresses->u1.Function, (void *)factoryHook,
-              (void **)&factoryOriginal);
-        return;
+      auto slot = reinterpret_cast<void **>(&addresses->u1.Function);
+      const bool ordinal = IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal);
+      // LFS can start InSim from the command line before it creates DXGI.
+      // Check the executable and INI in the callback, outside the loader lock.
+      if (winsock && ordinal && IMAGE_ORDINAL(names->u1.Ordinal) == 2) {
+        patch(slot, reinterpret_cast<void *>(localInSimBind),
+              reinterpret_cast<void **>(&bindOriginal));
+        break;
+      }
+      if (dxgi && !ordinal) {
+        auto name = reinterpret_cast<IMAGE_IMPORT_BY_NAME *>(base + names->u1.AddressOfData);
+        if (std::strcmp(reinterpret_cast<const char *>(name->Name), "CreateDXGIFactory1") == 0) {
+          patch(slot, reinterpret_cast<void *>(factoryHook),
+                reinterpret_cast<void **>(&factoryOriginal));
+          break;
+        }
       }
     }
   }

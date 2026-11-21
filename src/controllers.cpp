@@ -19,11 +19,8 @@ static std::vector<std::uint32_t> nativeDevices;
 
 static HMODULE xinputModule() {
   static const HMODULE module = [] {
-    wchar_t system[MAX_PATH]{};
-    if (!GetSystemDirectoryW(system, MAX_PATH))
-      return HMODULE{};
     for (const auto *dll : {L"xinput1_4.dll", L"xinput1_3.dll", L"xinput9_1_0.dll"}) {
-      if (auto handle = LoadLibraryW((std::wstring(system) + L"\\" + dll).c_str()))
+      if (auto handle = loadSystemLibrary(dll))
         return handle;
     }
     return HMODULE{};
@@ -67,6 +64,14 @@ static bool isPlayStationOrAdapter(SDL_JoystickID id) {
 void updatePlayStationControllers(double time) {
   std::lock_guard<std::mutex> lock(controllerMutex);
   static const bool ready = [] {
+    // SDL's HID backend looks these up by basename. Load the system copies
+    // before initializing it so the current directory cannot supply them.
+    for (const auto *dll : {L"hid.dll", L"cfgmgr32.dll"}) {
+      if (!loadSystemLibrary(dll)) {
+        log("Windows HID libraries unavailable; native gamepad input disabled");
+        return false;
+      }
+    }
     SDL_SetHint(SDL_HINT_XINPUT_ENABLED, "0");
     SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT, "0");
     SDL_SetHint(SDL_HINT_JOYSTICK_GAMEINPUT, "0");
