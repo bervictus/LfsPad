@@ -1,5 +1,10 @@
 # LfsPad test notları
 
+## LfsPad 0.1.3
+
+- `/insim 30000` satırı bulunan bir LFS dizininde 0.1.2 kurucusuyla uyumsuzluk hatası yeniden görüldü. 0.1.3 kurucusu aynı dosyayı koruyup `LfsPad.ini` dosyasına portu yazdı. Türkçe ve İngilizce kurulum ve kaldırma denemeleri geçti.
+- Çekirdek ve sanal kontrolcü testleriyle 45 kurulum kontrolü geçti. Kurulum kontrolleri farklı portları, geçersiz portları, UTF-16 ayar dosyasını ve güncellemede ayarların korunmasını kapsadı.
+
 ## LfsPad 0.1.1
 
 - Ayrı bir 32 bit LFS 0.8C38 kopyasını InSim açıkken başlattık. Windows, test portunun TCP ve UDP dinleyicilerini `127.0.0.1` üzerinde gösterdi. Mod yerel bağlantıyı kurdu. F710 algılandı ve DirectInput, gaz ve fren için iki ayrı eksen sundu.

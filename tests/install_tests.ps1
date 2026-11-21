@@ -83,9 +83,46 @@ try {
     Check (!(Test-Path -LiteralPath "$root\dinput8.dll")) 'no original proxy leaves no DLL'
 
     $root=New-Fixture 'different-port'
-    [IO.File]::WriteAllText("$root\data\script\autoexec.lfs",'/insim 30000')
-    Reject { Install $root } 'different existing port refused'
-    Check (!(Test-Path -LiteralPath "$root\addons")) 'port preflight made no installation files'
+    $scriptPath="$root\data\script\autoexec.lfs"
+    $customScript="// /insim 55555"+[Environment]::NewLine+"/insim 30000"
+    [IO.File]::WriteAllText($scriptPath,$customScript)
+    $scriptHash=(Get-FileHash -LiteralPath $scriptPath).Hash
+    Install $root
+    Check ([IO.File]::ReadAllText("$root\LfsPad.ini") -match '(?m)^InSimPort=30000\r?$') 'existing custom port copied into new config'
+    Check ((Get-FileHash -LiteralPath $scriptPath).Hash -eq $scriptHash) 'custom port script left byte-for-byte intact'
+    Uninstall $root
+    Check ((Get-FileHash -LiteralPath $scriptPath).Hash -eq $scriptHash) 'uninstall leaves original custom port intact'
+
+    $root=New-Fixture 'custom-port-existing-settings'
+    $iniPath="$root\LfsPad.ini"
+    $scriptPath="$root\data\script\autoexec.lfs"
+    $customScript=@('/insim 29999','  /insim 065535') -join [Environment]::NewLine
+    [IO.File]::WriteAllText($scriptPath,$customScript,[Text.Encoding]::UTF8)
+    $ini=@('[General]','Language=en','; Keep this comment','InSimPort=29999','AllowRemoteInSim=1','','[Input]','DeadzonePercent=31')
+    [IO.File]::WriteAllLines($iniPath,$ini,[Text.Encoding]::Unicode)
+    $expected=[Text.Encoding]::Unicode.GetBytes(([IO.File]::ReadAllText($iniPath).Replace('InSimPort=29999','InSimPort=65535')))
+    $expected=[Text.Encoding]::Unicode.GetPreamble()+$expected
+    Install $root
+    Check ([Convert]::ToBase64String([IO.File]::ReadAllBytes($iniPath)) -eq
+        [Convert]::ToBase64String([byte[]]$expected)) 'effective startup port changes only the existing INI key'
+    $iniHash=(Get-FileHash -LiteralPath $iniPath).Hash
+    & "$projectRoot\tools\install.ps1" -GameDirectory $root -DllPath $update -Update | Out-Null
+    Check ((Get-FileHash -LiteralPath $iniPath).Hash -eq $iniHash) 'update retains synchronized custom port and settings'
+
+    $root=New-Fixture 'custom-port-no-general-section'
+    [IO.File]::WriteAllText("$root\data\script\autoexec.lfs",'/insim 12345')
+    [IO.File]::WriteAllLines("$root\LfsPad.ini",@('[Input]','InSimPort=45678','DeadzonePercent=31'))
+    Install $root
+    $result=[IO.File]::ReadAllText("$root\LfsPad.ini")
+    Check ($result -match '(?m)^\[General\]\r?\nInSimPort=12345\r?$') 'missing General section added for custom port'
+    Check ($result -match '(?m)^\[Input\]\r?\nInSimPort=45678\r?\nDeadzonePercent=31\r?$') 'keys in other sections untouched'
+
+    $root=New-Fixture 'invalid-port'
+    foreach ($command in @('/insim 0','/insim 65536','/insim 30000x','/insim 999999999999')) {
+        [IO.File]::WriteAllText("$root\data\script\autoexec.lfs",$command)
+        Reject { Install $root } "invalid startup command rejected: $command"
+    }
+    Check (!(Test-Path -LiteralPath "$root\addons")) 'invalid port preflight made no installation files'
 
     $root=New-Fixture 'unknown-build'
     [IO.File]::AppendAllText("$root\LFS.exe",'unknown-version-fixture')

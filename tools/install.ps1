@@ -51,14 +51,16 @@ try {
     if ([IO.File]::Exists($previousDll)) { throw 'LfsPad.previous.dll already exists; preserve and resolve it before installing.' }
     if (![IO.File]::Exists($iniSource)) { throw 'Package configuration is missing.' }
     $autoexec="$gameRoot\data\script\autoexec.lfs"
-    $scriptFile=Read-GameScript $autoexec
-    $ports=[regex]::Matches($scriptFile.Text,'(?im)^(?:\uFEFF|\xEF\xBB\xBF)?[ \t]*/insim[ \t]+([0-9]+)\b')
-    foreach ($port in $ports) {
-        if ($port.Groups[1].Value -ne '29999') {
-            throw 'Existing InSim port differs from 29999. Configure this package for that port first.'
-        }
-    }
-    $scriptChanged=$ports.Count -eq 0
+    $scriptFile=Read-GameText $autoexec
+    $port=Get-StartupInSimPort $scriptFile.Text
+    $scriptChanged=$null -eq $port
+    if ($scriptChanged) { $port=29999 }
+
+    $iniPath="$gameRoot\LfsPad.ini"
+    $hasIni=[IO.File]::Exists($iniPath)
+    $iniFile=if ($hasIni) { Read-GameText $iniPath } else { Read-GameText $iniSource }
+    $iniText=Set-LfsPadInSimPort $iniFile.Text $port
+    if ($Diagnostics) { $iniText=$iniText -replace '(?im)^Diagnostics=\d+', 'Diagnostics=1' }
     $backup=New-BackupFolder $gameRoot
     $existing=@()
     foreach ($relative in @('dinput8.dll','cfg.txt','interface_cfg.txt','data\script\autoexec.lfs','LfsPad.ini')) {
@@ -90,13 +92,9 @@ try {
         $changes['LfsPad.previous.dll']="$backup\previous.new"
         Copy-Item -LiteralPath "$backup\dinput8.dll" -Destination $changes['LfsPad.previous.dll']
     }
-    if ($Diagnostics -or $existing -notcontains 'LfsPad.ini') {
-        $source=if ($existing -contains 'LfsPad.ini') { "$backup\LfsPad.ini" } else { $iniSource }
+    if (!$hasIni -or $iniText -cne $iniFile.Text) {
         $ini="$backup\ini.new"
-        if ($Diagnostics) {
-            $text=[IO.File]::ReadAllText($source) -replace '(?im)^Diagnostics=\d+', 'Diagnostics=1'
-            [IO.File]::WriteAllText($ini,$text)
-        } else { Copy-Item -LiteralPath $source -Destination $ini }
+        [IO.File]::WriteAllBytes($ini,$iniFile.Encoding.GetBytes($iniText))
         $changes['LfsPad.ini']=$ini
     }
     if ($scriptChanged) {

@@ -92,8 +92,8 @@ function Set-InstallationFile([string]$Staged, [string]$Destination) {
     }
 }
 
-function Read-GameScript([string]$Path) {
-    # LFS scripts commonly use legacy code pages. Latin-1 here is a reversible
+function Read-GameText([string]$Path) {
+    # LFS files may use legacy code pages. Latin-1 here is a reversible
     # byte mapping for ASCII edits and preserves all other characters exactly.
     $encoding=[Text.Encoding]::GetEncoding(28591)
     $bytes=if ([IO.File]::Exists($Path)) { [IO.File]::ReadAllBytes($Path) }
@@ -104,6 +104,45 @@ function Read-GameScript([string]$Path) {
     }
     $text=if ($bytes.Length) { $encoding.GetString([byte[]]$bytes) } else { '' }
     return @{Text=$text; Encoding=$encoding}
+}
+
+function Get-StartupInSimPort([string]$Text) {
+    $commands=[regex]::Matches($Text,'(?im)^(?:\uFEFF|\xEF\xBB\xBF)?[ \t]*/insim(?=[ \t\r\n]|$)([^\r\n]*)')
+    $port=$null
+    foreach ($command in $commands) {
+        $arguments=$command.Groups[1].Value
+        $candidate=0
+        if ($arguments -notmatch '^[ \t]*([0-9]+)[ \t]*(?://.*)?$' -or
+            ![int]::TryParse($Matches[1],[ref]$candidate) -or $candidate -lt 1 -or $candidate -gt 65535) {
+            throw 'Invalid InSim port in autoexec.lfs. Use /insim followed by a port from 1 to 65535.'
+        }
+        $port=$candidate
+    }
+    return $port
+}
+
+function Set-LfsPadInSimPort([string]$Text, [int]$Port) {
+    $line="InSimPort=$Port"
+    $eol=if ($Text -match '\r?\n') { $Matches[0] } else { [Environment]::NewLine }
+    $general=[regex]::Match($Text,'(?im)^(?:\uFEFF|\xEF\xBB\xBF)?[ \t]*\[General\][^\r\n]*(?:\r?\n|$)')
+    if (!$general.Success) {
+        if ($Port -eq 29999) { return $Text } # The DLL already defaults to 29999.
+        if ($Text -and !$Text.EndsWith([string][char]10)) { $Text+=$eol }
+        return ($Text+'[General]'+$eol+$line+$eol)
+    }
+    $offset=$general.Index+$general.Length
+    $remaining=$Text.Substring($offset)
+    $next=[regex]::Match($remaining,'(?m)^[ \t]*\[')
+    $bodyLength=if ($next.Success) { $next.Index } else { $remaining.Length }
+    $body=$remaining.Substring(0,$bodyLength)
+    $key='(?im)^[ \t]*InSimPort[ \t]*=[^\r\n]*'
+    if ($body -match $key) {
+        $body=$body -replace $key,$line
+    } elseif ($Port -ne 29999) {
+        if (!$general.Value.EndsWith([string][char]10)) { $line=$eol+$line }
+        $body=$line+$eol+$body
+    }
+    return ($Text.Substring(0,$offset)+$body+$remaining.Substring($bodyLength))
 }
 
 function Assert-Win32Dll([string]$Path) {

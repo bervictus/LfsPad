@@ -6,11 +6,11 @@ Use a controller to start a race, change your setup in the garage and get back o
 
 ## Install or update
 
-1. Close LFS and [download the Windows installer](https://github.com/bervictus/LfsPad/releases/download/v0.1.2/LfsPad-0.1.2-setup.exe).
+1. Close LFS and [download the Windows installer](https://github.com/bervictus/LfsPad/releases/download/v0.1.3/LfsPad-0.1.3-setup.exe).
 2. Choose **English** or **Türkçe** at the top right. Select the folder containing `LFS.exe`.
 3. Click **Install**, or **Update** if LfsPad is already installed. Then launch LFS as usual.
 
-To uninstall, open the installer again, select the same folder and click **Uninstall**. Setup restores the original DLL if one was present. Updates keep your settings.
+To uninstall, open the installer again, select the same folder and click **Uninstall**. Setup restores the original DLL if one was present. Updates keep your settings. Setup uses the InSim port already set in the game’s startup script.
 
 ## Getting started
 

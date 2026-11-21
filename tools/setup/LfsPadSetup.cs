@@ -324,6 +324,8 @@ namespace LfsPadSetup
                             detail = Ui.T("LFS açık. Oyunu kapatıp tekrar dene.", "Close LFS and try again.");
                         else if (detail.Contains("Only the verified 0.8C38"))
                             detail = Ui.T("Bu klasörde farklı bir LFS sürümü var. LFS 0.8C38’in kurulu olduğu klasörü seç.", "Select the folder containing LFS 0.8C38.");
+                        else if (detail.Contains("Invalid InSim port in autoexec.lfs"))
+                            detail = Ui.T("autoexec.lfs dosyasındaki InSim portu geçersiz. /insim komutunda 1 ile 65535 arasında bir port kullan.", "The InSim port in autoexec.lfs is invalid. Use a port from 1 to 65535 after /insim.");
                         if (detail.Length == 0)
                             detail = Ui.T("Kurulum betiği hata koduyla kapandı (", "Setup returned error code (") + process.ExitCode + ").";
                         throw new InvalidOperationException(detail);
