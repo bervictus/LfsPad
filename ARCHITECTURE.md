@@ -78,4 +78,23 @@ Türkçe Q klavye Unicode giriş üretir. Metin/parola içeriği kopyalanmaz, ç
 `insim.cpp`: süreç içi yerel durum bağlantısı.
 `tools/install.ps1`, `uninstall.ps1`: doğrulanmış yedek ve geri yükleme.
 
+## Kurulum betikleri
+
+Kurulum EXE’si paketle birlikte gelen PowerShell betiklerini kullanır. Yedekleme, sürüm kontrolü ve RFS zincirini geri yükleme bu betiklerde yürütülür.
+
+ZIP paketinde de aynı betikler bulunur. LFS kapalıyken paketi çıkardığın klasörde PowerShell aç.
+
+```powershell
+# İlk kurulum
+./tools/install.ps1 -GameDirectory 'C:\LFS'
+
+# Güncelleme
+./tools/install.ps1 -GameDirectory 'C:\LFS' -Update
+
+# Kaldırma
+./tools/uninstall.ps1 -GameDirectory 'C:\LFS'
+```
+
+Yedekler oyun klasöründe `addons/LfsPad/backups` altında tutulur.
+
 Fiziksel kontrolcü, çekirdek ve kurulum testleri [VALIDATION.md](VALIDATION.md) dosyasında kayıtlıdır.

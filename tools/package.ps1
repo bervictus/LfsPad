@@ -8,8 +8,8 @@ $packageRoot="$projectRoot\artifacts\LfsPad-$version"
 $sourceRoot="$projectRoot\artifacts\LfsPad-$version-source"
 $license="$projectRoot\.tools\imgui-1.91.9b\LICENSE.txt"
 if (!(Test-Path -LiteralPath $license)) { throw 'Dear ImGui license missing.' }
-New-Item -ItemType Directory -Path "$packageRoot\tools","$sourceRoot\src","$sourceRoot\tools","$sourceRoot\tests" -Force | Out-Null
-$documents=@('README.md','ARCHITECTURE.md','VALIDATION.md','LfsPad.ini')
+New-Item -ItemType Directory -Path "$packageRoot\tools","$sourceRoot\src","$sourceRoot\tools\setup","$sourceRoot\tests" -Force | Out-Null
+$documents=@('README.md','KONTROLLER.md','ARCHITECTURE.md','VALIDATION.md','LfsPad.ini')
 foreach ($file in $documents) {
     Copy-Item -LiteralPath "$projectRoot\$file" -Destination $packageRoot -Force
     Copy-Item -LiteralPath "$projectRoot\$file" -Destination $sourceRoot -Force
@@ -20,6 +20,7 @@ Copy-Item -LiteralPath $license -Destination "$packageRoot\Dear-ImGui-LICENSE.tx
 Copy-Item -LiteralPath "$projectRoot\CMakeLists.txt","$projectRoot\.gitignore" -Destination $sourceRoot -Force
 Get-ChildItem -LiteralPath "$projectRoot\src" -File | Copy-Item -Destination "$sourceRoot\src" -Force
 Get-ChildItem -LiteralPath "$projectRoot\tools" -Filter '*.ps1' -File | Copy-Item -Destination "$sourceRoot\tools" -Force
+Copy-Item -LiteralPath "$projectRoot\tools\setup\LfsPadSetup.cs" -Destination "$sourceRoot\tools\setup" -Force
 Get-ChildItem -LiteralPath "$projectRoot\tests" -File | Copy-Item -Destination "$sourceRoot\tests" -Force
 Copy-Item -LiteralPath $license -Destination "$sourceRoot\Dear-ImGui-LICENSE.txt" -Force
 foreach ($root in @($packageRoot,$sourceRoot)) {

@@ -6,6 +6,7 @@
 - LFS 0.8C38, X modundaki F710 için **Kaydırıcı 0** ve **Kaydırıcı 1** eksenlerini listeledi. Oyun içinde Gaz eksen 6’ya ve Fren eksen 7’ye düz yönde atandı. İki tetik bırakıldığında her iki eksen 0 gösterdi.
 - Fiziksel sürüş denemesinde LFS’nin gaz ve fren eksenleri ayrı tam basışlarda sırasıyla `65535 / 0` ve `0 / 65535`, iki tetik tam basılıyken `65535 / 65535` okudu. Eşzamanlı farklı seviyeler de doğrulandı.
 - Yükleme günlüğünde 0.8C38 doğrulaması, RFS zinciri ve F710’a ayrı eksen sunumu görüldü.
+- Kurulum EXE’si geçici LFS dizininde ilk kurulum, aynı sürüm kontrolü, güncelleme ve kaldırma adımlarını tamamladı. Dizin yolundaki boşluk ve kesme işareti, farklı bir PowerShell modül yolu, uyumsuz LFS sürümü ve eski DLL ile ayarların korunması sınandı.
 
 ## Geliştirme sürümü 0.2.10 — 21 Kasım 2026
 
