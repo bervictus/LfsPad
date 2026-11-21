@@ -1,8 +1,8 @@
-# Doğrulama kaydı
+# LfsPad test notları
 
 ## LfsPad 0.1.0 — İlk herkese açık sürüm
 
-- 183 çekirdek ve 22 kurulum kontrolü geçti. Pedal kontrolleri iki ayrı eksenin uçlarını, eşzamanlı farklı değerleri ve süzülen pedalların sıfıra dönmesini kapsıyor.
+- 183 çekirdek testi ve 22 kurulum kontrolü geçti. Gaz ve fren için üç durumu denedik. Her tetiğe tek başına sonuna kadar bastık, ikisini farklı seviyelerde tuttuk ve sürüş girdisi engellendiğinde iki değerin de sıfıra döndüğünü kontrol ettik.
 - LFS 0.8C38, X modundaki F710 için **Kaydırıcı 0** ve **Kaydırıcı 1** eksenlerini listeledi. Oyun içinde Gaz eksen 6’ya ve Fren eksen 7’ye düz yönde atandı. İki tetik bırakıldığında her iki eksen 0 gösterdi.
 - Fiziksel sürüş denemesinde LFS’nin gaz ve fren eksenleri ayrı tam basışlarda sırasıyla `65535 / 0` ve `0 / 65535`, iki tetik tam basılıyken `65535 / 65535` okudu. Eşzamanlı farklı seviyeler de doğrulandı.
 - Yükleme günlüğünde 0.8C38 doğrulaması, RFS zinciri ve F710’a ayrı eksen sunumu görüldü.
@@ -12,7 +12,7 @@
 
 - Sanal Sixaxis/DualShock 3, DualShock 4, DualSense ve DualSense Edge ile algılama, kaynak seçimi, menü tuşları, analog eksenler, ayrı tetik değerleri, titreşim çıkışı ve bağlantı kesilmesi sınandı.
 - Gerçek LFS 0.8C38 kurulumunda F710 X modunda algılandı. Gaz ve frenin eksen 6 ve 7 atamaları yeniden açılışta görüldü. Tanılama girdisiyle menü geçişi ve bağlı olmayan PlayStation kaynağının kaydının engellenmesi sınandı. RFS DLL zinciri korundu.
-- Fiziksel PlayStation USB ve Bluetooth denemeleri bekliyor.
+- Gerçek PlayStation kollarıyla USB ve Bluetooth bağlantısını henüz denemedik.
 
 ## Geliştirme sürümü 0.2.10 — 21 Kasım 2026
 
@@ -158,7 +158,7 @@ Gezinme/etkinleştirme kontrolleri modun tanılama kısayollarından aynı kod y
 | RFS özel pencereleri | Native tabloda yok | R3 ile imleç |
 | Metin / parola | Yerel metin ve Türkçe harf denendi | Parola alanı ve oyun karakter seti sınırları ayrıca sınanmalı |
 
-## Kalan fiziksel kabul testleri
+## Kontrolcüyle denenmesi gerekenler
 
 - F710 X modunda yalnız kontrolcüyle ana menü → tek oyunculu → pist/araç → garaj → yarış → ana menü → çıkış.
 - D-pad/analog tekrar hızı; basılı A ile ekran geçişinde ikinci aktivasyon olmaması.

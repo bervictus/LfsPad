@@ -1,46 +1,27 @@
-# LfsPad kullanım notları
+# LfsPad tuş rehberi
 
-## Kullanım
+## Menüde hangi tuşu kullanacağım?
 
-F710'u **X** modunda kullanın. İlk bağlı XInput cihazı seçilir; seçim oyun içindeki ayarlardan değiştirilebilir.
-
-PlayStation veya SDL'nin tanıdığı bir USB adaptörü bağlıysa **Kontrolcü** satırından o kaynağı da seçebilirsin. PlayStation eşlemeleri **Çarpı/A**, **Daire/B**, **Kare/X**, **Üçgen/Y**, **L1/LB**, **R1/RB**, **Options/Start**, **Share veya Create/Back** şeklinde. Sixaxis ve DualShock 3'te son iki tuş **Start** ve **Select**.
-
-PS3 kolun resmi Sony `sixaxis.sys` sürücüsüyle bağlıysa `LfsPad.ini` dosyasında `[Input]` altında `PlayStation3SonyDriver=1` ayarla ve LFS’yi yeniden aç. Sürüşteki sağ analog hızlı işlem menüsü, düğme sırası tanınan Sony cihazlarında çalışır. [SDL PS3 sürücü ayarı](https://wiki.libsdl.org/SDL3/SDL_HINT_JOYSTICK_HIDAPI_PS3_SIXAXIS_DRIVER)
-
-### Ayrı gaz ve fren eksenleri
-
-LFS’de **Seçenekler → Kontroller** ekranında **Gaz / fren eksenleri → ayrı** seç. **Eksenler / FF** sayfasında **Gaz** için **Kaydırıcı 0 (RT)**, **Fren** için **Kaydırıcı 1 (LT)** ata. İki eksenin yönü **düz** olmalı. Bu sayfada iki tetiği birlikte tutarak göstergeleri sınayabilirsin.
-
-Ayrı kaydırıcılar tek bir etkin kontrolcü ve eşleşen DirectInput aygıtı ile kullanılır. Oyunun yerel eksenleri de listede bulunur. Yerel eksenlere dönmek için LFS’nin gaz ve fren atamalarını değiştir ve oyunu yeniden açmadan önce `LfsPad.ini` içindeki `[Input]` bölümüne `SplitTriggers=0` yaz.
-
-### Varsayılan tuşlar
-
-| Kontrol | İşlev |
+| Yapmak istediğin | Varsayılan tuş |
 |---|---|
-| D-pad / sol analog | Seçim çerçevesini taşı |
-| A / B | Onay / geri |
-| Start | Oyun menüsü / metni onayla |
-| LT + RT kısa süre basılı | Menüde kontrolcü ayarlarını aç veya kapat |
-| Sağ analog tıklama | Seçim / yedek imleç |
-| Sağ analog | İmleç modunda hareket |
-| X | İmleçte sağ tıklama; klavyede sil |
-| Y | Ekran klavyesi; klavyede büyük/küçük harf |
-| LB / RB | Yerel sekmelerde sekme değiştir, tekrar, sunucu ve mod araç listelerinde sayfa değiştir |
+| Düğmeler arasında dolaşmak | D-pad veya sol analog |
+| Seçmek / geri dönmek | A / B |
+| Sekme veya liste sayfası değiştirmek | LB / RB |
+| Oyun menüsünü açmak | Start |
+| LfsPad ayarlarını açmak veya kapatmak | Menüde LT ve RT’yi birlikte kısa süre basılı tut |
+| İmleci açmak | R3 (sağ analoga bas) |
+| İmleci kullanmak | Sağ analogla hareket et. A ile tıkla, X ile sağ tıkla. Sürüklemek için A’yı basılı tut. D-pad yukarı/aşağı sayfayı kaydırır. |
+| Yazı yazmak | Y ile Türkçe Q klavyeyi aç. Y büyük/küçük harfi değiştirir, X siler, Start yazıyı onaylar. |
 
-Tablodaki atamalar varsayılandır. Dokuz menü eylemi A/B/X/Y/LB/RB/Start/Back/R3/L3 tuşlarına oyun içinden atanabilir. Dolu bir tuş seçilirse iki eylemin atamaları yer değiştirir; böylece bir eylem kaybolmaz. Ayar ekranında kaydetme için fiziksel A, iptal için fiziksel B sabittir.
+**PlayStation’da** A, B, X ve Y sırasıyla **Çarpı, Daire, Kare ve Üçgen**. LB/RB yerine L1/R1, LT/RT yerine L2/R2 kullan. Start, **Options** tuşuna karşılık gelir. Back için **Share** veya **Create** kullan. Sixaxis ve DualShock 3’te bu iki tuşun adı **Start** ve **Select**.
 
-**Doğrudan tuş atamak** için bir menüde LT ve RT'yi birlikte yaklaşık yarım saniye basılı tut, bir eylem satırı seç ve X'e bas. Tuşları bırakıp kullanmak istediğin tuşa bas. Atama beklerken A, B ve Start da atanabilir. D-pad sol bekleyen atamayı iptal eder. Atama tamamlanınca A ile ayarları kaydet veya B ile önceki kayda dön. D-pad sağ/sol ile tuşlar arasında dolaşmak da mümkündür.
+Otomatik seçimde LfsPad önce bağlı XInput kollarına bakar. İstediğin kolu seçmek için ayarlardaki **Kontrolcü** satırını kullan. F710’un arkasındaki anahtar **X** konumunda olmalı. PS3 kolunu Sony’nin `sixaxis.sys` sürücüsüyle kullanıyorsan `LfsPad.ini` dosyasında `[Input]` bölümüne `PlayStation3SonyDriver=1` yazıp oyunu yeniden aç. [SDL’nin PS3 sürücü notu](https://wiki.libsdl.org/SDL3/SDL_HINT_JOYSTICK_HIDAPI_PS3_SIXAXIS_DRIVER)
 
-Ekran klavyesi Türkçe Q, rakam, ASCII sembolleri, €, £, boşluk, silme, onay ve iptal içerir. LFS'nin metin penceresi algılandığında açılır; diğer metin alanlarında Y ile açılabilir. Alanın içeriği overlay'de tekrar gösterilmez; parolayı LFS maskeler. Ayarlarda D-pad yukarı/aşağı satır seçer, sağ/sol değeri değiştirir, A kaydeder, B önceki kayda döner. Bağlı olmayan kontrolcü yuvası kaydedilemez.
+## Menü kısayolları
 
-Yerel kaydırıcının ortasını seçip A'ya basınca sol/sağ ile değer ayarlanır; A veya B bu düzenlemeyi bitirir. Yedek imleçte A basılıyken sağ analogla sürükleme yapılabilir; D-pad yukarı/aşağı tekerlek kaydırması sağlar.
+Örneğin garajda **Back**’i tutup **sağ** yöne bas. Çerçeve **Görüntüleyici** düğmesine gider. Back’i bırakıp **A**’ya bastığında görüntüleyici açılır. Bir kısayol soluk görünüyorsa o düğme bulunduğun ekranda kullanılamıyor.
 
-### Menü kısayolları
-
-Back'i basılı tutunca ilgili yönler ekranda görünür. D-pad yönüne basarak odağı taşı, Back'i bırak ve A ile öğeyi aç. Tuş eşlemelerini değiştirdiysen ekrandaki tuşları kullan.
-
-| Ekran | ↑ | ↓ | ← | → |
+| Back’i tuttuğun ekran | ↑ | ↓ | ← | → |
 |---|---|---|---|---|
 | Ana menü | Tek oyunculu | Seçenekler | Tekrarlar | Çok oyunculu |
 | Tek oyunculu hazırlık | Garaj | Yürü | Pist | Sürücü |
@@ -48,45 +29,50 @@ Back'i basılı tutunca ilgili yönler ekranda görünür. D-pad yönüne basara
 | Seçenekler | Kontroller | Tamam | Ekran | Grafik |
 | Durdurma menüsü | Devam et | Pit | Seçenekler | Tekrarlamayı göster |
 
-**Kısayolları değiştirmek** için bir menüde LT ve RT’yi basılı tut. **Kişisel menü kısayolları** satırını A ile aç. D-pad yukarı/aşağı ile menü veya yön satırını seç, sol/sağ ile değerini değiştir. Aynı hedef iki yöne atanırsa yönler yer değiştirir. **Kapalı** yönü boş bırakır ve **X** seçili menünün dört varsayılanını geri getirir.
+**Bir yönü değiştirmek için** LT ve RT’yi tutup **Kişisel menü kısayolları** satırını A ile aç. D-pad yukarı/aşağı ile satırı seç, sol/sağ ile değiştir. Örneğin garajda sağ yöne **Kaplama seç** atayabilirsin. Böylece **Renkler** sekmesindeyken Back + sağ seni o düğmeye götürür. Ana menüde **Eğitim** de seçenekler arasında.
 
-Düzenleyicide **A** değişiklikleri ayar taslağına alır, **B** iptal eder. Genel ayarlarda **A** ile diske kaydet. Örneğin garajın sağ yönüne **Kaplama seç** atadıysan Renkler sekmesinde Back + sağ ile düğmeye odaklanırsın. O anda görünmeyen hedefler panelde soluk görünür. Ana menü için **Eğitim** de seçilebilir.
+Bir hedefi başka bir yöne verirsen iki kısayol yer değiştirir. Bir yönü boş bırakmak için **Kapalı**’yı seç. **X**, seçili menünün dört yönünü ilk hâline getirir. Bitirince **A** ile ayarlara dön ve kaydetmek için bir kez daha **A**’ya bas. **B**, açık ekrandaki değişiklikleri iptal eder.
 
-O oturumda ana menüye dönünce son odaklanan ana menü düğmesi seçilir. Durdurma menüsü **Devam et** üzerinde açılır. Seçenekler etkin kategoriye odaklanır ve LB/RB kategoriler arasında geçiş yapar.
+## Tuşları değiştirmek
 
-### Sürüş titreşimi
+Menüde **LT + RT**’yi yaklaşık yarım saniye basılı tut. Değiştirmek istediğin görevin üzerine gel ve **X**’e bas. Tuşları bırak, sonra kullanmak istediğin tuşa bas. Vazgeçersen D-pad’de sola bas. Tuşları D-pad sol/sağ ile listeden de seçebilirsin.
 
-Bir menüde **LT + RT**'yi basılı tutarak kontrolcü ayarlarını aç. İlk satırdayken D-pad yukarı ile en alttaki **Sürüş titreşimi** ayarına geç. Sağ/sol ile şiddeti ayarla, **X** ile iki motoru kısa süre dene ve **A** ile kaydet. Varsayılan %50, %0 kapalıdır. F710'u X modunda kullan ve üzerindeki titreşim düğmesinin açık olduğundan emin ol.
+Dokuz menü görevine A, B, X, Y, LB, RB, Start, Back, R3 veya L3 atayabilirsin. Seçtiğin tuş başka bir görevdeyse iki görev tuş değiştirir. Ayarlar ekranında fiziksel **A** her zaman kaydeder, **B** değişiklikleri iptal eder. Kontrolcü seçimini kaydetmek için seçtiğin kolun bağlı olması gerekir.
 
-Motor devri, vites değişimi, kayma ve darbeler LFS'nin sürüş verisinden titreşim üretir. Kokpit ve özel kamerada OutSim varsa titreşim tekerlek ve süspansiyon verisini de kullanır. Takip kamerasında ve OutSim akışının kesildiği diğer sürüş görünümlerinde InSim'deki motor, hareket ve ivme verisi kullanılır. Durdurma menüsü, tekrar, başka aracı izleme, Alt+Tab ve bağlantı kaybı sürüş titreşimini keser.
+## Garaj, listeler ve yazı alanları
 
-Ayrıntılı tekerlek verisi için mod `cfg.txt` içindeki OutSim akışını okur. Akış için `OutSim Mode` 1 veya 2, geçerli IP ve port, düşük `OutSim Delay` (ör. 1) ve `OutSim Opts 1ff` gerekir. Mevcut kurulumda bu değerler zaten ayarlıdır. Telemetri yokken ayarlardaki kısa deneme kullanılabilir.
+- **Garajda** LB/RB ile sekme değiştir. Ayar, renk ve kaplama listelerinde D-pad yukarı/aşağı ile satıra gel, A ile uygula. Listenin başında veya sonunda yönü basılı tutarak kaydırabilirsin.
+- **Renkler** sekmesinde kırmızı, yeşil, mavi veya parlaklık çubuğunu seçip A’ya bas. Sol/sağ ile değeri değiştir. A veya B ile çubuktan çık. Kendi rengini oluşturmak için LFS’de **Yeni renkler**’i seç. Diğer menülerdeki kaydırıcılar da aynı şekilde çalışır.
+- **Görüntüleyici**’de sağ analogla aracı çevir. LT uzaklaştırır, RT yakınlaştırır. B’ye bastığında garaja, aynı düğmeye dönersin. Alt+Tab yaptıysan veya kolun bağlantısı kesildiyse dönünce analogu ve tetikleri bırakıp tekrar kullan.
+- **Tekrar, sunucu ve mod araç listelerinde** yukarı/aşağı basılı tuttukça daha hızlı ilerlersin. LB/RB ile sayfa atlayabilirsin. Aynı oturumda listeye döndüğünde son baktığın satır hâlâ varsa oradan devam edersin.
+- **Yazı alanında** klavye kendiliğinden açılmazsa Y’ye bas. Türkçe harfleri, rakamları ve € ile £ dahil sembolleri kullanabilirsin. Yazdıklarını oyunun kendi alanında görürsün. Parolayı LFS gizler.
+- **RFS penceresinde** veya D-pad ile ulaşamadığın bir yerde R3 ile imleci açabilirsin. Ana menü aynı oturumda son seçimini hatırlar. Durdurma menüsü **Devam et**, seçenekler ise açık olan kategori üzerinde başlar.
 
-### Garaj
+## Sürüş ve tekrarlar
 
-- LB/RB ile sekmeleri değiştir. **Ayarlar**, **Renkler** ve **Kaplama seç** listelerinde D-pad yukarı/aşağı ile satır seç, A ile uygula. Uzun bir listenin kenarında yönü tutunca odaktaki liste kayar.
-- **Renkler** sekmesinde kırmızı, yeşil, mavi veya parlaklık çubuğunu seç. A düzenlemeyi açar, D-pad sol/sağ değeri değiştirir, A veya B düzenlemeyi bitirir. Kişisel renk gerektiren kontrollerde LFS'nin **Yeni renkler** akışını kullan.
-- Garajdaki **Görüntüleyici** düğmesini A ile aç. Sağ analog aracı çevirir, LT uzaklaştırır, RT yakınlaştırır. B aynı düğmeye odaklanarak garaja döner. Oyun odağı veya bağlantı geri geldiğinde çubuğu ve tetikleri bırakıp yeniden kullan. İmleç modu geçerli tuş eşlemesiyle açılır.
+**Gaz ile fren.** LFS’de **Seçenekler → Kontroller** ekranında gaz ve fren eksenlerini **ayrı** seç. **Eksenler / FF** sayfasında **Gaz**’a **Kaydırıcı 0 (RT)**, **Fren**’e **Kaydırıcı 1 (LT)** ata. İkisinin yönünü de **düz** yap. İki tetiği birlikte sıkarak göstergeleri kontrol edebilirsin. Bu kaydırıcılar için LfsPad’in tek bir etkin kolu oyundaki DirectInput cihazıyla eşleştirebilmesi gerekir. Oyunun kendi eksenlerine dönmek istersen önce LFS’de gaz ve fren atamalarını değiştir. Sonra `LfsPad.ini` içindeki `[Input]` bölümüne `SplitTriggers=0` yazıp oyunu yeniden aç.
 
-### Uzun listeler, tekrar ve yarış
+**Yarış sırasında** Back’i tut ve sağ analogla seçim yap. Yukarı kamerayı, sol aynayı, sağ pit bilgisi panelini seçer. Back’i bıraktığında seçim uygulanır. Vazgeçmek için önce analogu ortaya getir. Ayarlardan bu menüyü L3’e veya R3’e alabilir ya da kapatabilirsin. Tek XInput koluyla sürerken seçtiğin tuş bu menüye ayrılır. PlayStation’da bu özellik düğme sırası tanınan Sony kollarında çalışır.
 
-- Tekrar, sunucu ve mod araç listelerinde D-pad veya sol analogu yukarı/aşağı basılı tutmak gezinmeyi hızlandırır. Liste kenarında sonraki satırlar kaydırılarak görünür. LB/RB bir sayfa ilerler veya geri gider. Aynı oyun oturumunda listeye dönünce bulunabilen son satır yeniden seçilir.
-- Tekrar oynarken A duraklatır veya devam ettirir. LT beş saniye geri, RT beş saniye ileri sarar. B veya Start tekrar menüsünü açar. Tetikleri her adım için bırakıp yeniden basın.
-- **Yarışı bitir** seçiliyken veya yedek imleç düğmenin üzerindeyken A'yı ilerleme çubuğu dolana kadar basılı tutun (yaklaşık 0,7 saniye). Erken bırakınca veya düğmeden uzaklaşınca işlem iptal olur. **Devam et** tek basışla çalışır. Onayı başka bir tuşa atadıysanız o tuş kullanılır.
-- Yarışta **Back** tuşunu basılı tutun. Sağ analogu yukarı götürmek kamerayı, sol ayna modunu, sağ pit bilgisi panelini seçer. Seçimi uygulamak için Back'i bırakın. Analog ortadayken bırakmak menüyü kapatır. Açma tuşu kontrolcü ayarlarından Back, L3, R3 veya Kapalı olarak seçilebilir. Tek XInput kontrolcüsüyle yarışırken seçilen tuş hızlı menüye ayrılır.
-- Windows, etkin XInput kontrolcüsünün koptuğunu bildirdiğinde tek oyunculu yarış duraklatılır. Kontrolcü yeniden bağlandığında ekrandaki **A: Devam et** onayını kullanın. Daha önce P ile duraklatılmış bir oyun için P tuşunu kullanın. Çevrimiçi yarışta bağlantı uyarısı görünür ve yarış sürer.
+**Durdurma menüsünde** seçim yaparken XInput kolunun düğmeleri ve analogları sürüşü etkilemez. Piste dönünce analogları hemen kullanabilirsin. Basılı tuttuğun menü tuşlarını önce bırak. **Yarışı bitir** için onay tuşunu çubuk dolana kadar tut (yaklaşık 0,7 saniye). Erken bırakır veya imleci düğmeden çekersen yarış sürer. **Devam et** için bir kez basman yeterli.
 
-Gezinme, oyunun o karede oluşturduğu düğme tablosunu okur. Etkinleştirme oyunun fare girişinden, geri/onay normal Windows klavye giriş yolundan geçer. Özel RFS/ImGui pencereleri ve listelerin kaydırma alanları yedek imleç gerektirebilir. Yarış içi durdurma menüsü açıkken XInput kontrolcüsünün sürüşe giden düğme ve analog girdileri nötrlenir. Devam edince analog giriş yeniden sürüşe geçer ve basılı menü düğmeleri bırakılınca tekrar çalışır.
+**Kolun bağlantısı kesilirse** Windows bunu bildirdiğinde tek oyunculu yarış duraklar. Yeniden bağlanıp ekrandaki **Devam et** seçimini onayla. Oyunu önceden P ile duraklattıysan P ile devam et. Çevrimiçi yarış bağlantı uyarısıyla birlikte sürer.
 
-## Tanılama
+**Tekrar izlerken** A duraklatır veya devam ettirir. LT beş saniye geri, RT beş saniye ileri sarar. Bir adım daha sarmak için tetiği bırakıp yeniden bas. B veya Start tekrar menüsünü açar.
 
-### Canlı giriş göstergesi
+## Titreşim
 
-Bir menüde **LT + RT**'yi basılı tutarak kontrolcü ayarlarını açın. **Canlı giriş göstergesi** satırını sağ/sol ile açın ve A ile kaydedin. Panel ayarlarda, sürüşte ve durdurma menüsünde görünür. B önceki ayara döner. Varsayılan olarak gösterge kapalıdır.
+LfsPad ayarlarında ilk satırdayken D-pad’de yukarı basarak **Sürüş titreşimi**’ne geç. Sol/sağ ile şiddeti ayarla, X ile dene, A ile kaydet. İlk kurulumda şiddet %50’dir. Kapatmak için %0’ı seç. F710’da kolun üzerindeki titreşim düğmesini de aç. PlayStation kolunda titreşimi USB ile dene. Bluetooth bağlantısında LFS’nin sürüş eksenlerini okuyabilmesi için standart giriş modu kullanılır.
 
-Sol sütun, etkin XInput yuvasındaki direksiyon konumunu, ayrı LT/RT değerlerini, D-pad'i ve tuşları gösterir. Sağ sütun LFS'ye dönen DirectInput durumunu gösterir. Ayrı eksenler sunulduğunda gaz ve frenin ayrı değerleri görünür. Diğer durumda panel **Ortak Z** değerini gösterir. Kehribar çerçeve, basılı tuşun DirectInput okumasından süzüldüğünü gösterir. Panel güvenilir bir cihaz örneği beklerken veya birden çok cihaz varken sağ sütunda durum mesajı görünür. [XInput ve DirectInput eşlemesi](https://learn.microsoft.com/en-us/windows/win32/xinput/directinput-and-xusb-devices)
+Titreşim motor devrine, vites değişimlerine, kaymaya ve darbelere tepki verir. Kokpit ve özel kamerada OutSim, tekerlek ve süspansiyon verisini de sağlar. Takip kamerasında veya OutSim verisi kesildiğinde mod InSim’den gelen sürüş verisini kullanır. Oyunu duraklattığında, tekrar izlerken, başka araca geçtiğinde, Alt+Tab yaptığında veya kolun bağlantısı kesildiğinde titreşim durur.
 
-### Geliştirme kısayolları
+OutSim’i kendin ayarlıyorsan `cfg.txt` içinde `OutSim Mode` için 1 veya 2, geçerli bir IP ve port, düşük bir `OutSim Delay` (örneğin 1) ve `OutSim Opts 1ff` kullan. Ayarlardaki X ile titreşim denemesi, oyun sürüş verisi göndermediğinde de çalışır.
+
+## Kolun gönderdiği girdiyi görmek
+
+**LT + RT** ile ayarları aç. **Canlı giriş göstergesi**’ni açıp A ile kaydet. Sol sütunda kolun direksiyonu, tetikleri ve tuşları, sağda LFS’nin okuduğu değerler görünür. Ayrı gaz ve fren eksenleri yoksa **Ortak Z** görünür. Turuncu çerçeveli bir tuşa bastığında LfsPad o basışı oyuna iletmez. Birden çok cihaz bağlıysa veya oyun henüz veri okumadıysa sağ sütunda bunu belirten bir mesaj görürsün. Göstergeyi aynı ayardan kapatabilirsin. [XInput ve DirectInput eşlemesi](https://learn.microsoft.com/en-us/windows/win32/xinput/directinput-and-xusb-devices)
+
+## Geliştirme kısayolları
 
 `LfsPad.log` yükleme zincirini, sürüm denetimini, XInput bağlantısını ve etkinleştirilen öğeleri içerir. Parola ve yazılan metin kaydedilmez.
 

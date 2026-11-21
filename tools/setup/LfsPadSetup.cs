@@ -39,7 +39,7 @@ namespace LfsPadSetup
     internal sealed class SetupWindow : Form
     {
         private readonly TextBox folder = new TextBox();
-        private readonly Button browse = new Button { Text = "Gözat", AutoSize = true };
+        private readonly Button browse = new Button { Text = "Göz at", AutoSize = true };
         private readonly Button install = new Button { Text = "Kur", AutoSize = true };
         private readonly Button remove = new Button { Text = "Kaldır", AutoSize = true };
         private readonly Label status = new Label { AutoSize = true, MaximumSize = new Size(505, 0) };
@@ -186,7 +186,7 @@ namespace LfsPadSetup
                     return;
                 busy = true;
                 RefreshActions();
-                status.Text = "Lütfen bekle…";
+                status.Text = uninstall ? "LfsPad kaldırılıyor…" : HasInstallation(root) ? "LfsPad güncelleniyor…" : "LfsPad kuruluyor…";
                 UseWaitCursor = true;
                 string result = await Task.Run(() => RunOperation(root, uninstall));
                 busy = false;
@@ -296,7 +296,7 @@ namespace LfsPadSetup
                         if (detail.Contains("Close LFS before"))
                             detail = "LFS açık. Oyunu kapatıp tekrar dene.";
                         else if (detail.Contains("Only the verified 0.8C38"))
-                            detail = "Bu LFS.exe sürümü desteklenmiyor. Kurucu LFS 0.8C38 için hazırlandı.";
+                            detail = "Bu klasörde farklı bir LFS sürümü var. LFS 0.8C38’in kurulu olduğu klasörü seç.";
                         if (detail.Length == 0)
                             detail = "Kurulum betiği hata koduyla kapandı (" + process.ExitCode + ").";
                         throw new InvalidOperationException(detail);

@@ -1,6 +1,6 @@
 # LfsPad mimarisi
 
-Hedef EXE: LFS 0.8C38, i386, SHA256 `77606E57885FEC33CDDABDFD2271D2F181C65806C2D7EC0049654BD5487D8A52`. Bütün iç adresler bu dosya üzerinde gözlemlenen RVA'lardır; başka EXE için kullanılamaz. Oyun EXE'si ve oyun varlıkları dağıtıma dahil değildir.
+LfsPad, Windows için 32 bit LFS 0.8C38 ile çalışır. Bu sürümün SHA-256 özeti `77606E57885FEC33CDDABDFD2271D2F181C65806C2D7EC0049654BD5487D8A52`. Aşağıdaki adresler bu dosyanın başlangıcına göre verilmiştir. Başka bir sürümde aynı adresler farklı kodu gösterebilir. Oyun EXE'si ve oyun varlıkları dağıtıma dahil değildir.
 
 ## Yükleme ve çizim
 
@@ -24,7 +24,7 @@ LT ve RT, uygun bir menüde nötr konumdan sonra 350 ms boyunca birlikte basıl�
 
 | Alan | RVA / yerleşim |
 |---|---|
-| Öğelerinin sayısı | `0x28c994`, signed int |
+| Öğe sayısı | `0x28c994`, signed int |
 | Kareye ait öğe tablosu | `0x28ca20`, her öğe 52 byte |
 | Yerel metin penceresi işaretçisi | `0x49c298`; metin penceresi `base+0x95ec20` |
 | Yarış içi durdurma menüsü | Etkin modal `0x49c298` ile aynı owner ve `0x8e310` callback'i olan görünür düğmeler |
@@ -38,7 +38,7 @@ LT ve RT, uygun bir menüde nötr konumdan sonra 350 ms boyunca birlikte basıl�
 
 Öğe düzeni dört float NDC sınır (0), value (16), text (20), extra (24), style (28), byte type (32), byte codepage (36), colour pointer (40), owner (44), callback (48) alanlarından oluşur. Gezinme çeviriden bağımsız geometridir. Mod, yalnızca tanınan liste adlarını sınırlı uzunlukta okuyup seçimi oturum boyunca bir hash ile hatırlar. Normal fare yolu yerel öğeleri etkinleştirir ve listeyi kaydırır.
 
-Bu yaklaşım, native descriptor üreten ekranlara genel erişim sağlar. Özel RFS pencereleri bu tabloda bulunmaz. Bazı pasif görünen native öğeler de callback taşıyabilir; her ekranın semantiği ayrı doğrulama gerektirir.
+Mod, LFS’nin düğme tablosuna yazdığı öğeleri okuyabilir. RFS kendi pencerelerini çizdiği için bunlar tabloda görünmez. LFS’de bazı pasif düğmelerin de geri çağrı adresi vardır. Bir düğmenin seçilebilir olduğunu anlamak için ekrandaki davranışını da kontrol etmek gerekir.
 
 Garaj kökü, etkin modalın `0xb1780` görüntüleyici düğmesiyle tanınır. Görüntüleyicide aynı sahibe ait aydınlatma ve LOD kontrolleri (`0xb2dd0`, `0xb2de0`) aranır. Sahne ile alt düğmeleri ayıran sınır görünür düğmelerin dikey konumundan alınır.
 
@@ -75,7 +75,9 @@ Türkçe Q klavye Unicode giriş üretir. Metin/parola içeriği kopyalanmaz, ç
 ## Dosyalar
 
 `core.hpp`: gezinme, sekme/kaydırıcı seçimi, tekrar, ölü bölge, geçiş engeli, eşleme.
-`runtime.cpp`: native adaptör, XInput, overlay, klavye ve ayarlar.
+`runtime.cpp` oyun menülerini okur, seçim çerçevesini, klavyeyi ve ayarlar panelini çizer.
+
+`controllers.cpp` XInput ve PlayStation kollarını okur.
 `platform.cpp`: yükleme zinciri, hash doğrulama, DirectInput/DXGI kancaları.
 `insim.cpp`: süreç içi yerel durum bağlantısı.
 `tools/install.ps1`, `uninstall.ps1`: doğrulanmış yedek ve geri yükleme.

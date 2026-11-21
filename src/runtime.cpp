@@ -1046,16 +1046,16 @@ static void drawShortcutEditor(float l, float t, float w) {
           row == 0 ? menu.label : menu.targets[directions[row - 1]].label);
   }
   char hint[128];
-  std::snprintf(hint, sizeof(hint), "D-pad: seç / değiştir   %s: menüyü sıfırla",
+  std::snprintf(hint, sizeof(hint), "D-pad: seç / değiştir   %s: varsayılanlara dön",
                 buttonCaption(2));
   label(l + 22, t + 342, hint);
-  std::snprintf(hint, sizeof(hint), "%s: ayarlara uygula   %s: iptal",
+  std::snprintf(hint, sizeof(hint), "%s: değişiklikleri al   %s: iptal",
                 buttonCaption(0), buttonCaption(1));
   label(l + 22, t + 374, hint);
 }
 static void drawSettings(float l, float t, float w) {
   panel(l, t, l + w, t + settingsHeight);
-  label(l + 22, t + 16, "LFS KONTROLCÜ AYARLARI");
+  label(l + 22, t + 16, "LfsPad ayarları");
   char values[settingCount][100];
   if (cfg.slot == playStationPreference)
     std::snprintf(values[0], 80, "Kontrolcü: PlayStation / USB adaptör");
@@ -1090,7 +1090,7 @@ static void drawSettings(float l, float t, float w) {
     label(l + 22, t + 342,
           bindingCapture.phase == BindingCapture::Phase::Release
               ? "Önce basılı tuşları bırak."
-              : "Atamak istediğin tuşa bas.",
+              : "Kullanmak istediğin tuşa bas.",
           IM_COL32(255, 210, 90, 255));
     label(l + 22, t + 374, "D-pad sol: atamayı iptal et");
   } else if (settingRow == shortcutSetting) {
@@ -1104,7 +1104,7 @@ static void drawSettings(float l, float t, float w) {
                   buttonCaption(0), buttonCaption(1));
     label(l + 22, t + 342, hint);
     if (isBindingSetting())
-      std::snprintf(hint, sizeof(hint), "%s: tuş ata   Dolu atamalar yer değiştirir.",
+      std::snprintf(hint, sizeof(hint), "%s: tuş ata   Tuş doluysa iki görev yer değiştirir.",
                     buttonCaption(2));
     else if (settingRow == rumbleSetting)
       std::snprintf(hint, sizeof(hint), "%s: titreşimi dene    %%0: kapalı", buttonCaption(2));
@@ -1113,7 +1113,7 @@ static void drawSettings(float l, float t, float w) {
     label(l + 22, t + 374, hint);
   }
   if (missingSlot)
-    label(l + 22, t + 320, "Seçilen kontrolcü bağlı değil.",
+    label(l + 22, t + 320, "Seçtiğin kontrolcüyü bağla.",
           IM_COL32(255, 210, 90, 255));
   else if (shortcutSaveFailed)
     label(l + 22, t + 320, "Kısayollar kaydedilemedi. A ile tekrar dene.",
@@ -1181,10 +1181,10 @@ static void drawInputMeter(float x, float y, const XINPUT_GAMEPAD &gamepad,
   label(left, y + 42, slotText, meterActive);
   const char *status = !connected ? "Kontrolcü bağlı değil"
                        : !singlePad || sample.ambiguous ? "Birden çok cihaz"
-                       : !sample.tick ? "LFS girişi bekleniyor"
-                       : sample.axesFiltered ? "Eksenler nötrleniyor"
+                       : !sample.tick ? "LFS’den veri bekleniyor"
+                       : sample.axesFiltered ? "Eksenler sıfırda"
                        : sample.buttonsFiltered ? "Tuş filtresi açık"
-                       : "LFS'ye iletilen";
+                       : "Oyunun gördüğü";
   label(right, y + 42, status, sample.tick ? meterActive : meterWarning);
   drawMeterAxis(left, y + 69, column, "Direksiyon",
                 axisFraction(gamepad.sThumbLX, -32768, 32767), connected, true);
@@ -2254,7 +2254,7 @@ void frame(IDXGISwapChain *swap) {
                       bindingName(Back), bindingName(CursorMode));
       if (garageViewer && !cursorMode && connected && !singlePad)
         std::snprintf(hint, sizeof(hint),
-                      "3B kontrol için tek kontrolcü   |   %s: Garaja dön   %s: İmleç",
+                      "Aracı çevirmek için tek kol bağla   |   %s: Garaja dön   %s: İmleç",
                       bindingName(Back), bindingName(CursorMode));
       auto size = ImGui::CalcTextSize(hint);
       float w = std::min(width - 20, size.x + 24),
