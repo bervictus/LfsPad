@@ -1,5 +1,11 @@
 # LfsPad test notları
 
+## LfsPad 0.2.0
+
+- LFS 0.8C38 ve RFS v1236 birlikte açıldı. Dört ayar sekmesi gezildi ve RFS imleci, tanılama girdisiyle RFS’nin Tuş Atamaları penceresini açtı. Yeni RFS imleci fiziksel tuşlarla ayrıca denenmedi.
+- Türkçe kurucu `C:\LFS` klasörünü buldu. Mevcut kurulum 0.2.0’a yükseltildi. INI ve RFS yükleyicisinin dosya özetleri aynı kaldı. Eksik InSim başlangıç komutu saklanan portla geri eklendi.
+- Windows PowerShell ve PowerShell 7’de 53 kurulum kontrolü, ayrıca çekirdek ve kontrolcü testleri geçti. Otomatik güncelleme, değiştirilmiş DLL veya kapalı güncelleme ayarıyla dosyalara dokunmadı. Oyun açılışındaki GitHub kontrolü son kararlı sürümü okudu.
+
 ## LfsPad 0.1.6
 
 - Ayrı bir LFS 0.8C38 kopyasında **Kontrolcü simgeleri** ayarı kapatılıp kaydedildi. İki köşe ipucu gizlendi ve INI dosyasında değer 0 olarak görüldü. Kısayollar açıldığında tuş adları yazıyla gösterildi.

@@ -6,8 +6,8 @@ LfsPad ile Live for Speed’de tek oyunculu bir yarış açabilir, garajda araba
 
 ## Kurulum ve kaldırma
 
-1. LFS’yi kapat ve [Windows kurulum dosyasını indir](https://github.com/bervictus/LfsPad/releases/download/v0.1.6/LfsPad-0.1.6-setup.exe).
-2. Kurulumda `LFS.exe` dosyasının bulunduğu klasörü seç.
+1. LFS’yi kapat ve [Windows kurulum dosyasını indir](https://github.com/bervictus/LfsPad/releases/download/v0.2.0/LfsPad-0.2.0-setup.exe).
+2. **İleri**’ye bas ve kurucunun bulduğu klasörü kontrol et. Oyun başka bir yerdeyse **Göz at** ile `LFS.exe` dosyasının bulunduğu klasörü seç.
 3. **Kur**’a bas ve oyunu aç. LfsPad zaten kuruluysa **Güncelle**’ye bas. Tuş atamaların ve diğer ayarların korunur.
 
 Kurucu, LFS’nin başlangıç betiğinde ayarlı olan InSim portunu kullanır. LfsPad’in kullandığı porta varsayılan olarak yalnızca bu bilgisayardan bağlanılabilir. Başka bir bilgisayardaki InSim aracını da kullanıyorsan [InSim ayarına](ARCHITECTURE.md#insim-bağlantısı) bak.
@@ -30,7 +30,7 @@ F710’u oyunda denedik. PlayStation tuşlarını ve tetiklerini sanal cihazlarl
 
 ## Dil seçimi
 
-Kurucunun sağ üstünden **Türkçe** veya **English** seç. Oyun içinde iki tetiği birlikte tut, ikinci satırdaki **Dil** seçeneğini sağ/sol ile değiştir ve A ile kaydet. Ekran klavyesi de seçtiğin dile geçer.
+Kurucunun sağ üstünden **Türkçe** veya **English** seç. Oyunda iki tetiği birlikte tut, **Genel → Dil** seçeneğini sağ/sol ile değiştir ve A ile kaydet. Ekran klavyesi de seçtiğin dile geçer.
 
 ## Menüde ilk tur
 
@@ -39,6 +39,12 @@ Kurucunun sağ üstünden **Türkçe** veya **English** seç. Oyun içinde iki t
 **Back**’i basılı tutunca bulunduğun menünün kısayollarını görürsün. Örneğin ana menüde **Back + aşağı** ile **Seçenekler**’e geç. Back’i bırakıp **A**’ya bas. Kısayolları değiştirmek, titreşimi ayarlamak veya bağlı kollar arasından seçim yapmak için menüde iki tetiği birlikte kısa süre basılı tut (**LT + RT** veya **L2 + R2**). [Tuşlar ve kısayollar](KONTROLLER.md)
 
 Menü ipuçları ekranın sol ve sağ alt köşelerinde görünür. **LT + RT** ile LfsPad ayarlarını açıp **Kontrolcü simgeleri** satırından bunları kapatabilir veya yeniden açabilirsin. Değişikliği **A** ile kaydet. LFS’de **Seçenekler → Kontroller** altında bir sürüş işlevinin tuş kutusunu açıp D-pad yönüne basarak atama yapabilirsin.
+
+## Ayarlar, RFS ve güncellemeler
+
+LfsPad ayarlarında **LB/RB** ile **Genel**, **Kontroller**, **Sürüş** ve **Kısayollar** sekmeleri arasında geç. RFS yüklüyse LFS menüsünde **LB + RB**’ye birlikte basarak RFS imlecini aç. Sağ analogla ilerle, **A** ile tıkla veya sürükle, D-pad ile kaydır ve **B** ile gezinmeye dön.
+
+LfsPad her açılışta GitHub’daki kararlı sürümü kontrol eder. Uygun güncelleme varsa doğrulanan DLL, LFS kapandığında kurulur. Ayarlarını ve RFS yükleyicisini korur. İstersen **Genel → Otomatik güncelleme**’yi kapatabilirsin.
 
 ## Gazı ve freni ayrı kullanmak
 

@@ -15,6 +15,7 @@ $resources=@(
     @{File='tools\install-common.ps1'; Name='install-common.ps1'},
     @{File='tools\install.ps1'; Name='install.ps1'},
     @{File='tools\uninstall.ps1'; Name='uninstall.ps1'},
+    @{File='tools\update.ps1'; Name='update.ps1'},
     @{File='Dear-ImGui-LICENSE.txt'; Name='Dear-ImGui-LICENSE.txt'},
     @{File='SDL-LICENSE.txt'; Name='SDL-LICENSE.txt'},
     @{File='SDL-HIDAPI-LICENSE.txt'; Name='SDL-HIDAPI-LICENSE.txt'}

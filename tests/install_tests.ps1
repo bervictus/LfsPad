@@ -33,6 +33,9 @@ try {
     Check ((Get-FileHash -LiteralPath "$root\dinput8.dll").Hash -eq (Get-FileHash -LiteralPath "$projectRoot\build\dinput8.dll").Hash) 'installed build matches'
     Check ((Get-FileHash -LiteralPath "$root\data\script\autoexec.lfs").Hash -eq $scriptHash) 'existing InSim script unchanged'
     Check ([IO.File]::ReadAllText("$root\LfsPad.ini").Contains('31')) 'existing settings retained'
+    $worker="$root\addons\LfsPad\update\update.ps1"
+    Check ((Get-FileHash -LiteralPath $worker).Hash -eq
+        (Get-FileHash -LiteralPath "$projectRoot\tools\update.ps1").Hash) 'updater installed'
     Reject { Install $root } 'double installation refused'
     [IO.File]::AppendAllText("$root\dinput8.dll",'modified')
     $modifiedHash=(Get-FileHash -LiteralPath "$root\dinput8.dll").Hash
@@ -42,8 +45,27 @@ try {
     $update=Join-Path $fixtureRoot 'update.dll'
     Copy-Item -LiteralPath "$projectRoot\build\dinput8.dll" -Destination $update
     [IO.File]::AppendAllText($update,'updated-proxy-fixture')
+    $currentHash=(Get-FileHash -LiteralPath "$root\dinput8.dll").Hash
+    $updateHash=(Get-FileHash -LiteralPath $update).Hash
+    Reject {
+        & "$root\addons\LfsPad\update\install.ps1" -GameDirectory $root -DllPath $update -Update `
+            -ExpectedCurrentHash ('0'*64) -ExpectedNewHash $updateHash
+    } 'automatic update rejects stale installed hash'
+    Reject {
+        & "$root\addons\LfsPad\update\install.ps1" -GameDirectory $root -DllPath $update -Update `
+            -ExpectedCurrentHash $currentHash -ExpectedNewHash ('0'*64)
+    } 'automatic update rejects unexpected download hash'
+    $iniBefore=[IO.File]::ReadAllBytes("$root\LfsPad.ini")
+    [IO.File]::AppendAllText("$root\LfsPad.ini","`r`n[General]`r`nAutoUpdate=0")
+    Reject {
+        & "$root\addons\LfsPad\update\install.ps1" -GameDirectory $root -DllPath $update -Update `
+            -ExpectedCurrentHash $currentHash -ExpectedNewHash $updateHash
+    } 'automatic update respects new opt-out'
+    Check ((Get-FileHash -LiteralPath "$root\dinput8.dll").Hash -eq $currentHash) 'rejected automatic updates leave DLL intact'
+    [IO.File]::WriteAllBytes("$root\LfsPad.ini",$iniBefore)
     $iniHash=(Get-FileHash -LiteralPath "$root\LfsPad.ini").Hash
-    & "$projectRoot\tools\install.ps1" -GameDirectory $root -DllPath $update -Update | Out-Null
+    & "$root\addons\LfsPad\update\install.ps1" -GameDirectory $root -DllPath $update -Update `
+        -ExpectedCurrentHash $currentHash -ExpectedNewHash $updateHash | Out-Null
     Check ((Get-FileHash -LiteralPath "$root\dinput8.dll").Hash -eq (Get-FileHash -LiteralPath $update).Hash) 'update installed'
     Check ((Get-FileHash -LiteralPath "$root\LfsPad.ini").Hash -eq $iniHash) 'update preserves settings'
     Check ((Get-FileHash -LiteralPath "$root\LfsPad.previous.dll").Hash -eq $originalHash) 'update preserves original chain'
@@ -108,6 +130,13 @@ try {
     $iniHash=(Get-FileHash -LiteralPath $iniPath).Hash
     & "$projectRoot\tools\install.ps1" -GameDirectory $root -DllPath $update -Update | Out-Null
     Check ((Get-FileHash -LiteralPath $iniPath).Hash -eq $iniHash) 'update retains synchronized custom port and settings'
+    [IO.File]::WriteAllText($scriptPath,'// Startup command removed by another mod')
+    & "$projectRoot\tools\install.ps1" -GameDirectory $root -DllPath $update -Update | Out-Null
+    $repaired=[IO.File]::ReadAllText($scriptPath)
+    Check ($repaired.Contains('/insim 65535') -and $repaired.Contains('// Startup command removed by another mod')) 'manual update repairs missing InSim with existing Unicode INI port'
+    Check ((Get-FileHash -LiteralPath $iniPath).Hash -eq $iniHash) 'InSim repair does not rewrite the INI'
+    Uninstall $root
+    Check (![IO.File]::ReadAllText($scriptPath).Contains('/insim 65535')) 'uninstall removes the repaired startup command'
 
     $root=New-Fixture 'custom-port-no-general-section'
     [IO.File]::WriteAllText("$root\data\script\autoexec.lfs",'/insim 12345')

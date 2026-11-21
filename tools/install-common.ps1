@@ -81,6 +81,44 @@ function New-BackupFolder([string]$Root, [string]$Prefix='') {
     [IO.Directory]::CreateDirectory($backup).FullName
 }
 
+function Install-UpdateWorker([string]$Root, [string]$Source, [string]$Backup) {
+    if (![IO.File]::Exists((Join-Path $Source 'update.ps1'))) { return }
+    $target=Join-Path $Root 'addons\LfsPad\update'
+    if ($Source -eq $target) { return }
+    Assert-SafePath $target -Directory
+    $files='install-common.ps1','install.ps1','update.ps1'
+    foreach ($name in $files) { Assert-SafePath (Join-Path $target $name) }
+    [IO.Directory]::CreateDirectory($target) | Out-Null
+    foreach ($name in $files) {
+        $staged=Join-Path $Backup "$name.new"
+        Copy-Item -LiteralPath (Join-Path $Source $name) -Destination $staged
+        Set-InstallationFile $staged (Join-Path $target $name)
+    }
+}
+
+function Get-LfsPadGeneralInt([string]$Root, [string]$Key, [int]$Default) {
+    $path=Join-Path $Root 'LfsPad.ini'
+    Assert-SafePath $path
+    $general=$false
+    $keyPattern='^[ \t]*'+[regex]::Escape($Key)+'[ \t]*=[ \t]*([+-]?[0-9]+)'
+    foreach ($line in ((Read-GameText $path).Text -split '\r?\n')) {
+        if ($line -match '^(?:\uFEFF|\xEF\xBB\xBF)?[ \t]*\[([^\]]+)\]') {
+            if ($general) { break }
+            $general=$Matches[1] -eq 'General'
+        }
+        if ($general -and $line -match $keyPattern) {
+            $value=0
+            if ([int]::TryParse($Matches[1],[ref]$value)) { return $value }
+            return 0
+        }
+    }
+    return $Default
+}
+
+function Test-AutoUpdateEnabled([string]$Root) {
+    return (Get-LfsPadGeneralInt $Root 'AutoUpdate' 1) -ne 0
+}
+
 function Set-InstallationFile([string]$Staged, [string]$Destination) {
     if ([IO.File]::Exists($Destination)) {
         # Replace the directory entry instead of writing through links or an

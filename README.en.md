@@ -6,8 +6,8 @@ Use a controller to start a race, change your setup in the garage and get back o
 
 ## Install or update
 
-1. Close LFS and [download the Windows installer](https://github.com/bervictus/LfsPad/releases/download/v0.1.6/LfsPad-0.1.6-setup.exe).
-2. Choose **English** or **Türkçe** at the top right. Select the folder containing `LFS.exe`.
+1. Close LFS and [download the Windows installer](https://github.com/bervictus/LfsPad/releases/download/v0.2.0/LfsPad-0.2.0-setup.exe).
+2. Choose **English** or **Türkçe** at the top right and click **Next**. Check the detected folder or use **Browse** to select the folder containing `LFS.exe`.
 3. Click **Install**, or **Update** if LfsPad is already installed. Then launch LFS as usual.
 
 To uninstall, open the installer again, select the same folder and click **Uninstall**. Setup restores the original DLL if one was present. Updates keep your settings. Setup uses the InSim port already set in the game’s startup script.
@@ -16,7 +16,13 @@ To uninstall, open the installer again, select the same folder and click **Unins
 
 Move with the D-pad or left stick. Press A to select and B to go back (Cross and Circle on PlayStation). Click the right stick for a mouse pointer or press Y (Triangle) for the on-screen keyboard.
 
-Hold both triggers in a menu to open LfsPad settings. The second row changes the language. Use left or right to preview it, A to save or B to cancel. This also switches the keyboard between English QWERTY and Turkish Q. Hold Back to see the shortcuts for the current screen. [Controller guide](CONTROLS.md)
+Hold both triggers in a menu to open LfsPad settings. Use **LB/RB** to switch between **General**, **Controls**, **Driving** and **Shortcuts**. In **General → Language**, use left or right to preview the language, A to save or B to cancel. This also switches the keyboard between English QWERTY and Turkish Q. Hold Back to see shortcuts for the current screen. [Controller guide](CONTROLS.md)
+
+## RFS and updates
+
+With RFS installed, press **LB + RB** together in an LFS menu for the RFS pointer. Move with the right stick, click or drag with **A**, and scroll with the D-pad. Press **B** to return to item navigation.
+
+LfsPad checks GitHub for stable updates at launch. If a compatible update is available, it verifies the DLL and installs it after you quit LFS. Settings and the RFS loader are preserved. You can turn this off in **General → Automatic updates**.
 
 ## Controllers
 

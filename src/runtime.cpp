@@ -85,6 +85,7 @@ static LRESULT CALLBACK windowProc(HWND h, UINT message, WPARAM w, LPARAM l) {
                         : w == 'Q'           ? 16
                         : w == 'T'           ? 17
                         : w == 'G'           ? 18
+                        : w == 'R'           ? 19
                                              : -1;
   if (diagnosticsEnabled &&
       (message == WM_KEYDOWN || message == WM_SYSKEYDOWN) &&
@@ -134,7 +135,8 @@ static bool initialized = false, cursorMode = false, settings = false,
             keyboard = false, manualKeyboard = false, upper = false,
             symbols = false;
 static bool adjustingSlider = false;
-static int selected = -1, keyRow = 0, keyCol = 0, settingRow = 0;
+static int selected = -1, keyRow = 0, keyCol = 0, settingRow = 0, settingsTab = 0;
+static bool rfsCursor = false;
 static ControllerId activeSlot = -1;
 static bool playStationCaptions = false;
 static DWORD vibrationPreviewResult = ERROR_CANCELLED;
@@ -167,6 +169,7 @@ struct Config {
   int quickButton = 1;
   bool inputMonitor = false;
   bool controllerIcons = true;
+  bool autoUpdate = true;
   int rumbleStrength = 50;
   ShortcutMappings shortcuts;
 } cfg;
@@ -214,9 +217,20 @@ static const char *bindingName(Action a) {
   return buttonCaption(cfg.bindings[a]);
 }
 enum SettingRow {
-  controllerSetting, languageSetting, controllerIconsSetting, deadzoneSetting, cursorSpeedSetting,
-  firstBindingSetting, quickMenuSetting = firstBindingSetting + 9,
-  monitorSetting, shortcutSetting, rumbleSetting, settingCount
+  controllerSetting, languageSetting, controllerIconsSetting, autoUpdateSetting,
+  deadzoneSetting, cursorSpeedSetting, firstBindingSetting,
+  quickMenuSetting = firstBindingSetting + 9, monitorSetting, rumbleSetting,
+  shortcutSetting, settingCount
+};
+struct SettingsTab {
+  LocalizedText label;
+  int first, end;
+};
+static constexpr SettingsTab settingsTabs[] = {
+    {{"Genel", "General"}, controllerSetting, deadzoneSetting},
+    {{"Kontroller", "Controls"}, deadzoneSetting, quickMenuSetting},
+    {{"Sürüş", "Driving"}, quickMenuSetting, shortcutSetting},
+    {{"Kısayollar", "Shortcuts"}, shortcutSetting, settingCount},
 };
 static bool isBindingSetting() {
   return settingRow >= firstBindingSetting && settingRow < quickMenuSetting;
@@ -237,6 +251,8 @@ static void loadConfig() {
   GetPrivateProfileStringW(L"General", L"Language", L"tr", language,
                            _countof(language), ini.c_str());
   cfg.language = parseLanguage(language);
+  cfg.autoUpdate =
+      GetPrivateProfileIntW(L"General", L"AutoUpdate", 1, ini.c_str()) != 0;
   cfg.slot = std::clamp(
       (int)GetPrivateProfileIntW(L"Input", L"Controller", 0, ini.c_str()) - 1,
       -1, nativePreference);
@@ -305,8 +321,36 @@ static bool saveConfig() {
   put(L"RumbleStrength", cfg.rumbleStrength);
   for (int i = 0; i < 9; ++i)
     put(bindingKeys[i], cfg.bindings[i]);
-  return inputSaved && WritePrivateProfileStringW(
-      L"General", L"Language", languageKey(cfg.language), ini.c_str());
+  return inputSaved &&
+         WritePrivateProfileStringW(L"General", L"Language", languageKey(cfg.language), ini.c_str()) &&
+         WritePrivateProfileStringW(L"General", L"AutoUpdate", cfg.autoUpdate ? L"1" : L"0", ini.c_str());
+}
+static void checkForUpdate() {
+  if (!cfg.autoUpdate)
+    return;
+  const auto worker = path(L"addons\\LfsPad\\update\\update.ps1");
+  if (worker.empty() || GetFileAttributesW(worker.c_str()) == INVALID_FILE_ATTRIBUTES)
+    return;
+  wchar_t system[MAX_PATH]{};
+  const auto length = GetSystemDirectoryW(system, _countof(system));
+  if (!length || length >= _countof(system))
+    return;
+  const std::wstring powershell = std::wstring(system) +
+      L"\\WindowsPowerShell\\v1.0\\powershell.exe";
+  std::wstring command = L"\"" + powershell +
+      L"\" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File \"" +
+      worker + L"\" -GamePid " + std::to_wstring(GetCurrentProcessId()) +
+      L" -RunningVersion " L"" LFSPAD_VERSION;
+  STARTUPINFOW startup{};
+  startup.cb = sizeof(startup);
+  PROCESS_INFORMATION process{};
+  if (CreateProcessW(powershell.c_str(), command.data(), nullptr, nullptr, FALSE,
+                     CREATE_NO_WINDOW, nullptr, system, &startup, &process)) {
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+  } else {
+    log("Update check could not start: %lu", GetLastError());
+  }
 }
 static bool validMenuRect(const Rect &r) {
   return std::isfinite(r.l) && std::isfinite(r.t) && std::isfinite(r.r) &&
@@ -540,6 +584,21 @@ static void wheel(int amount) {
   i.mi.dwFlags = MOUSEEVENTF_WHEEL;
   i.mi.mouseData = (DWORD)amount;
   SendInput(1, &i, sizeof(i));
+}
+static POINT moveMenuCursor(float rx, float ry, float width, float height, float dt) {
+  POINT p{};
+  GetCursorPos(&p);
+  ScreenToClient(window, &p);
+  p.x = LONG(std::clamp(p.x + rx * cfg.cursorSpeed * dt, 0.f, width - 1));
+  p.y = LONG(std::clamp(p.y - ry * cfg.cursorSpeed * dt, 0.f, height - 1));
+  ImGui::GetForegroundDrawList()->AddCircle({float(p.x), float(p.y)}, 8,
+                                            IM_COL32(70, 255, 205, 255), 0, 2);
+  if ((rx || ry) && GetForegroundWindow() == window) {
+    POINT screen = p;
+    ClientToScreen(window, &screen);
+    SetCursorPos(screen.x, screen.y);
+  }
+  return p;
 }
 static int listSlot(int item, const ListView &view = list) {
   const auto it = std::find_if(view.entries.begin(), view.entries.end(),
@@ -1174,6 +1233,9 @@ static void adjustSetting(int direction) {
   case controllerIconsSetting:
     cfg.controllerIcons = !cfg.controllerIcons;
     break;
+  case autoUpdateSetting:
+    cfg.autoUpdate = !cfg.autoUpdate;
+    break;
   case deadzoneSetting:
     cfg.deadzone = std::clamp(cfg.deadzone + direction * .01f, .1f, .45f);
     break;
@@ -1248,6 +1310,25 @@ static void drawShortcutEditor(float l, float t, float w) {
 static void drawSettings(float l, float t, float w) {
   panel(l, t, l + w, t + settingsHeight);
   label(l + 22, t + 16, text("LfsPad ayarları", "LfsPad settings"));
+  const auto &tab = settingsTabs[settingsTab];
+  auto *draw = ImGui::GetForegroundDrawList();
+  const float tabWidth = (w - 88.f) / std::size(settingsTabs);
+  char tabHint[96];
+  std::snprintf(tabHint, sizeof(tabHint), text("%s / %s · Sekme", "%s / %s · Tabs"),
+                buttonCaption(PadLB), buttonCaption(PadRB));
+  label(l + w - ImGui::CalcTextSize(tabHint).x - 22, t + 16, tabHint);
+  for (int i = 0; i < int(std::size(settingsTabs)); ++i) {
+    const float x = l + 44.f + tabWidth * i;
+    const char *name = settingsTabs[i].label.get(cfg.language);
+    if (i == settingsTab) {
+      draw->AddRectFilled({x, t + 50}, {x + tabWidth - 4, t + 87},
+                          IM_COL32(35, 110, 94, 255), 4);
+      draw->AddLine({x + 4, t + 88}, {x + tabWidth - 8, t + 88},
+                    IM_COL32(65, 255, 196, 255), 2);
+    }
+    label(x + (tabWidth - ImGui::CalcTextSize(name).x) / 2.f, t + 58, name,
+          i == settingsTab ? IM_COL32_WHITE : IM_COL32(166, 185, 202, 255));
+  }
   const char *actionNames[] = {text("Onay", "Confirm"),
                                     text("Geri", "Back"),
                                     text("Sağ tıklama / sil", "Right click / delete"),
@@ -1267,6 +1348,8 @@ static void drawSettings(float l, float t, float w) {
   std::snprintf(values[languageSetting], 100, "%s", text("Dil: Türkçe", "Language: English"));
   std::snprintf(values[controllerIconsSetting], 100, text("Kontrolcü simgeleri: %s", "Controller icons: %s"),
                 cfg.controllerIcons ? text("Açık", "On") : text("Kapalı", "Off"));
+  std::snprintf(values[autoUpdateSetting], 100, text("Otomatik güncelleme: %s", "Automatic updates: %s"),
+                cfg.autoUpdate ? text("Açık", "On") : text("Kapalı", "Off"));
   std::snprintf(values[deadzoneSetting], 80, text("Analog ölü bölgesi: %d%%", "Stick deadzone: %d%%"),
                 int(cfg.deadzone * 100 + .5f));
   std::snprintf(values[cursorSpeedSetting], 80, text("İmleç hızı: %.0f", "Cursor speed: %.0f"), cfg.cursorSpeed);
@@ -1280,15 +1363,21 @@ static void drawSettings(float l, float t, float w) {
   std::snprintf(values[shortcutSetting], 100, "%s", text("Kişisel menü kısayolları", "Custom menu shortcuts"));
   std::snprintf(values[rumbleSetting], 100, text("Sürüş titreşimi: %d%%", "Driving vibration: %d%%"),
                 cfg.rumbleStrength);
-  int first = std::clamp(settingRow - 3, 0, settingCount - 6);
-  for (int row = 0; row < 6; ++row) {
+  constexpr int visibleRows = 5;
+  const int first = std::clamp(settingRow - 2, tab.first, std::max(tab.first, tab.end - visibleRows));
+  for (int row = 0; row < visibleRows && first + row < tab.end; ++row) {
     int i = first + row;
     if (i == settingRow)
-      ImGui::GetForegroundDrawList()->AddRectFilled(
-          {l + 14, t + 58 + row * 45.f}, {l + w - 14, t + 98 + row * 45.f},
+      draw->AddRectFilled(
+          {l + 14, t + 103 + row * 40.f}, {l + w - 14, t + 139 + row * 40.f},
           bindingCapture.active() ? IM_COL32(126, 84, 30, 255)
                                   : IM_COL32(35, 110, 94, 255), 4);
-    label(l + 25, t + 68 + row * 45.f, values[i]);
+    label(l + 25, t + 110 + row * 40.f, values[i]);
+  }
+  if (tab.end - tab.first > visibleRows) {
+    char position[32];
+    std::snprintf(position, sizeof(position), "%d / %d", settingRow - tab.first + 1, tab.end - tab.first);
+    label(l + w - ImGui::CalcTextSize(position).x - 25, t + 302, position);
   }
   if (bindingCapture.active()) {
     label(l + 22, t + 342,
@@ -1314,6 +1403,9 @@ static void drawSettings(float l, float t, float w) {
                     buttonCaption(2));
     else if (settingRow == rumbleSetting)
       std::snprintf(hint, sizeof(hint), text("%s: titreşimi dene    %%0: kapalı", "%s: test vibration   0%%: off"), buttonCaption(2));
+    else if (settingRow == autoUpdateSetting)
+      std::snprintf(hint, sizeof(hint), "%s", text("Açılışta kontrol edilir, oyun kapanınca kurulur.",
+                                                  "Checks on launch and installs after you quit."));
     else
       hint[0] = 0;
     label(l + 22, t + 374, hint);
@@ -1599,6 +1691,7 @@ static bool initialize(IDXGISwapChain *swap) {
   }
   activeSwap = swap;
   loadConfig();
+  checkForUpdate();
   log("LfsPad " LFSPAD_VERSION " active: PID=%lu HWND=%p Direct3D11, native table "
       "RVA=28ca20",
       GetCurrentProcessId(), window);
@@ -1651,7 +1744,8 @@ void frame(IDXGISwapChain *swap) {
                              !(sim.flags & (8 | 16 | 256 | 32768));
   const bool menu = !playingReplay &&
                     menuCapture(sim.known, sim.flags, sim.mode,
-                                nativeText || raceMenu || garageRoot || garageViewer || garageSkins);
+                                nativeText || raceMenu || mainMenuInitial >= 0 || optionsInitial >= 0 ||
+                                garageRoot || garageViewer || garageSkins);
   const bool shortcutEditorWasOpen = shortcutEditor;
   if (!menu && settings) {
     loadConfig();
@@ -1857,10 +1951,39 @@ void frame(IDXGISwapChain *swap) {
   else if (diagnosticSettings)
     diagnosticTriggersUntil = time + SettingsTriggerChord::duration + .18;
   const auto &pad = state.Gamepad;
+  constexpr auto rfsChord = XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER;
+  const bool rfsAvailable = GetModuleHandleW(L"rfs.dll") != nullptr;
+  const bool rfsAllowed = rfsAvailable && foreground && menu && (connected || cfg.diagnostics) &&
+                          !settings && !keyboard && !nativeText && !nativeButtonAssignment &&
+                          !pedalCalibration && !garageViewer && !lostAssignmentFocus && activeSlot == oldSlot;
+  const bool rfsChordPressed = ((held & rfsChord) == rfsChord && (pressed & rfsChord)) ||
+                               (diagnostic & (1u << 19));
+  static bool rfsDrain = false, rfsStickReady = false;
+  const bool wasRfsCursor = rfsCursor;
+  if (!rfsAllowed || (rfsCursor && (back || menuPressed)))
+    rfsCursor = false;
+  else if (rfsChordPressed)
+    rfsCursor = !rfsCursor;
+  const bool rfsChanged = wasRfsCursor != rfsCursor;
+  if (rfsChanged) {
+    releaseMouse();
+    blockMenuInput();
+    cursorMode = false;
+    rfsStickReady = false;
+    rfsDrain = true;
+    log("RFS menu cursor: %s", rfsCursor ? "open" : "closed");
+  }
+  const float rfsX = analog(pad.sThumbRX, cfg.deadzone);
+  const float rfsY = analog(pad.sThumbRY, cfg.deadzone);
+  if (!connected || (foreground && !rfsCursor && !buttons &&
+                     pad.bLeftTrigger <= XINPUT_GAMEPAD_TRIGGER_THRESHOLD &&
+                     pad.bRightTrigger <= XINPUT_GAMEPAD_TRIGGER_THRESHOLD && !lx && !ly && !rfsX && !rfsY))
+    rfsDrain = false;
   const bool diagnosticTriggers = time < diagnosticTriggersUntil;
   const bool toggleSettings = settingsChord.update(
       diagnosticTriggers ? 255 : pad.bLeftTrigger,
-      diagnosticTriggers ? 255 : pad.bRightTrigger, time, settingsChordAllowed);
+      diagnosticTriggers ? 255 : pad.bRightTrigger, time,
+      settingsChordAllowed && !rfsCursor && !rfsChanged);
   const auto shortcutScreen = menu && !nativeText ? findShortcutScreen(modal, raceMenu)
                                              : ShortcutScreen::None;
   const auto menuShortcuts = findMenuShortcuts(shortcutScreen, modal);
@@ -2064,6 +2187,21 @@ void frame(IDXGISwapChain *swap) {
     }
     if (!bindingCapture.active())
       blockMenuInput();
+  } else if (rfsCursor || rfsChanged) {
+    if (rfsCursor && !rfsChanged && GetForegroundWindow() == window) {
+      if (!rfsX && !rfsY)
+        rfsStickReady = true;
+      const auto p = moveMenuCursor(rfsStickReady ? rfsX : 0, rfsStickReady ? rfsY : 0,
+                                    width, height, dt);
+      if (confirm && !mouseDown)
+        clickAt(float(p.x), float(p.y), false, (buttons & binding(Confirm)) != 0);
+      if (cursorDragging && !(buttons & binding(Confirm)))
+        releaseMouse();
+      if (pressed & binding(Secondary))
+        clickAt(float(p.x), float(p.y), true);
+      if (nav[0] != nav[1])
+        wheel(nav[0] ? WHEEL_DELTA : -WHEEL_DELTA);
+    }
   } else if (foreground && !recoveryConsumesConfirm) {
     if (toggleSettings) {
       if (settings)
@@ -2128,7 +2266,6 @@ void frame(IDXGISwapChain *swap) {
         if (back || confirm) {
           if (!back) {
             cfg.shortcuts = shortcutEditDraft;
-            settingRow = 0;
             vibrationPreviewResult = ERROR_CANCELLED;
           }
           shortcutEditor = false;
@@ -2145,14 +2282,23 @@ void frame(IDXGISwapChain *swap) {
             adjustShortcut(nav[2] ? -1 : 1);
         }
       } else if (settings) {
-        if (nav[0])
-          settingRow = (settingRow + settingCount - 1) % settingCount;
-        if (nav[1] || diagnosticNext)
-          settingRow = (settingRow + 1) % settingCount;
-        if (nav[2])
-          adjustSetting(-1);
-        if (nav[3])
-          adjustSetting(1);
+        const bool previousTab = (pressed & XINPUT_GAMEPAD_LEFT_SHOULDER) || (diagnostic & (1u << 10));
+        const bool nextTab = (pressed & XINPUT_GAMEPAD_RIGHT_SHOULDER) || (diagnostic & (1u << 11));
+        if (previousTab != nextTab) {
+          constexpr int count = int(std::size(settingsTabs));
+          settingsTab = (settingsTab + count + (nextTab ? 1 : -1)) % count;
+          settingRow = settingsTabs[settingsTab].first;
+          vibrationPreviewResult = ERROR_CANCELLED;
+          blockMenuInput();
+        } else {
+          const auto &tab = settingsTabs[settingsTab];
+          if (nav[0])
+            settingRow = settingRow == tab.first ? tab.end - 1 : settingRow - 1;
+          if (nav[1] || diagnosticNext)
+            settingRow = settingRow == tab.end - 1 ? tab.first : settingRow + 1;
+          if (nav[2] != nav[3])
+            adjustSetting(nav[2] ? -1 : 1);
+        }
         if (back) {
           loadConfig();
           settings = false;
@@ -2263,21 +2409,7 @@ void frame(IDXGISwapChain *swap) {
         if (cursorMode) {
           float rx = analog(state.Gamepad.sThumbRX, cfg.deadzone),
                 ry = analog(state.Gamepad.sThumbRY, cfg.deadzone);
-          POINT p;
-          GetCursorPos(&p);
-          ScreenToClient(window, &p);
-          p.x =
-              LONG(std::clamp(p.x + rx * cfg.cursorSpeed * dt, 0.f, width - 1));
-          p.y = LONG(
-              std::clamp(p.y - ry * cfg.cursorSpeed * dt, 0.f, height - 1));
-          auto d = ImGui::GetForegroundDrawList();
-          d->AddCircle({float(p.x), float(p.y)}, 8, IM_COL32(70, 255, 205, 255),
-                       0, 2);
-          if (rx || ry) {
-            POINT screen = p;
-            ClientToScreen(window, &screen);
-            SetCursorPos(screen.x, screen.y);
-          }
+          const auto p = moveMenuCursor(rx, ry, width, height, dt);
           bool onFinish = false;
           if (raceFinishItem >= 0) {
             const auto &r = items[raceFinishItem].rect;
@@ -2419,8 +2551,8 @@ void frame(IDXGISwapChain *swap) {
   if (!(buttons & consumed))
     draining = false;
   captureButtons.store(foreground && connected && !drivingAssignmentArmed &&
-                       (menu || playingReplay || recoveryCapture || draining));
-  captureRaceAxes.store(foreground && connected && (raceMenu || recoveryCapture));
+                       (menu || playingReplay || recoveryCapture || draining || rfsDrain));
+  captureRaceAxes.store(foreground && connected && (raceMenu || recoveryCapture || rfsCursor || rfsDrain));
   const bool settingsVisible = foreground && menu && settings;
   static DrivingRumble rumble;
   static bool hadTelemetry = false;
@@ -2495,6 +2627,16 @@ void frame(IDXGISwapChain *swap) {
       drawSettings(settingsX, settingsY, settingsW);
     else if (keyboard)
       drawKeyboard(width, height);
+    else if (rfsCursor) {
+      if (cfg.controllerIcons) {
+        drawCornerHints(width, height, false, {
+            {PadRightStick, text("RFS imleci", "RFS cursor")},
+            {cfg.bindings[Confirm], text("Tıkla / sürükle", "Click / drag")}});
+        drawCornerHints(width, height, true, {
+            {PadDirections, text("Kaydır", "Scroll")},
+            {cfg.bindings[Back], text("İmleci kapat", "Close cursor")}});
+      }
+    }
     else {
       if (!assigningDrivingButton && !cursorMode && selected >= 0) {
         auto r = items[selected].rect;
@@ -2541,6 +2683,9 @@ void frame(IDXGISwapChain *swap) {
               {cfg.bindings[Keyboard], text("Klavye", "Keyboard")}, settingsHint});
         else if (pedalCalibration)
           drawCornerHints(width, height, true, {{cfg.bindings[Keyboard], text("Klavye", "Keyboard")}});
+        else if (rfsAvailable && optionsInitial >= 0)
+          drawCornerHints(width, height, true, {
+              {PadLB, text("RFS imleci", "RFS cursor"), PadRB}, settingsHint});
         else
           drawCornerHints(width, height, true, {
               {cfg.bindings[Keyboard], text("Klavye", "Keyboard")}, settingsHint});

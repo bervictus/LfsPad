@@ -40,6 +40,8 @@ LT ve RT, uygun bir menüde nötr konumdan sonra 350 ms boyunca birlikte basıl�
 
 Mod, LFS’nin düğme tablosuna yazdığı öğeleri okuyabilir. RFS kendi pencerelerini çizdiği için bunlar tabloda görünmez. LFS’de bazı pasif düğmelerin de geri çağrı adresi vardır. Bir düğmenin seçilebilir olduğunu anlamak için ekrandaki davranışını da kontrol etmek gerekir.
 
+`rfs.dll` yüklüyken LB + RB, menüde RFS imlecini açar. Sağ analog Windows imlecini hareket ettirir. Onay, sürükleme ve kaydırma mevcut fare yordamlarını kullanır. Menüden çıkıldığında veya oyun odağı kaybolduğunda sentetik basış bırakılır. Tutulan kontrolcü girdileri nötre dönene kadar DirectInput’a aktarılmaz.
+
 Garaj kökü, etkin modalın `0xb1780` görüntüleyici düğmesiyle tanınır. Görüntüleyicide aynı sahibe ait aydınlatma ve LOD kontrolleri (`0xb2dd0`, `0xb2de0`) aranır. Sahne ile alt düğmeleri ayıran sınır görünür düğmelerin dikey konumundan alınır.
 
 Garaj ayar satırları `0xb4420` ve `0xb4440`, kişisel renkler `0xb4650`, kaplama satırları `0x13dbe0` olarak tanınır. Aynı modaldaki listeler ayrı tutulur. Gerektiğinde odaktaki listeye ait tür 49/50 okları normal fare yoluyla kullanılır. Oklar ve tür 42 çubuğu ortak değer, sahip ve geometriyle eşleştirilir. Garajda ve görüntüleyicide doğrulanan tür 38/39 RGB ve parlaklık çubukları, okunabilir bileşen değeri ve yerel aralık üzerinden hesaplanan kısa bir sürüklemeyle değişir.
@@ -104,6 +106,12 @@ ZIP paketinde de aynı betikler bulunur. LFS kapalıyken paketi çıkardığın 
 ```
 
 Kurucu, mevcut DLL’leri ve yedekleri kayıtlı SHA-256 özetleriyle karşılaştırır. Bir yükleyici, birebir aynı eski DLL’yi geri koyduysa **Güncelle** ile LfsPad yeniden etkinleşir. Değiştirilmiş DLL’ler korunur. Kaldırma sırasında güncel `LfsPad.ini` dosyası oyun klasöründe kalır.
+
+## Otomatik güncellemeler
+
+Oyun açıldığında LfsPad, kurucunun `addons/LfsPad/update` klasörüne yerleştirdiği betiği görünür bir pencere açmadan çalıştırır. Betik GitHub’daki son kararlı sürüme bakar ve `LfsPad-<sürüm>-update-win32.dll` dosyasının boyutunu, SHA-256 özetini ve x86 biçimini doğrular. Oyun kapanınca kurulum kilidini alır ve kurulu DLL’nin indirme öncesindeki sürümle aynı olduğundan emin olur. Ardından kurucunun kullandığı yedekleme ve dosya değiştirme yoluyla günceller.
+
+Son denetimin sonucu `addons/LfsPad/update/status.log` dosyasındadır. **Genel → Otomatik güncelleme** seçeneği `LfsPad.ini` içindeki `[General]` bölümüne kaydedilir. Sürüm yayımlarken Windows ZIP, kaynak ZIP ve kurulum EXE’siyle birlikte derlemeden çıkan güncelleme DLL’si de GitHub sürümüne eklenir.
 
 Yedekler oyun klasöründe `addons/LfsPad/backups` altında tutulur.
 

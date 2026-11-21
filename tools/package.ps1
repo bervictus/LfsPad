@@ -17,7 +17,8 @@ foreach ($file in $documents) {
     Copy-Item -LiteralPath "$projectRoot\$file" -Destination $sourceRoot -Force
 }
 Copy-Item -LiteralPath "$projectRoot\build\dinput8.dll" -Destination $packageRoot -Force
-Copy-Item -LiteralPath "$projectRoot\tools\install-common.ps1","$projectRoot\tools\install.ps1","$projectRoot\tools\uninstall.ps1" -Destination "$packageRoot\tools" -Force
+Copy-Item -LiteralPath "$projectRoot\build\dinput8.dll" -Destination "$projectRoot\artifacts\LfsPad-$version-update-win32.dll" -Force
+Copy-Item -LiteralPath "$projectRoot\tools\install-common.ps1","$projectRoot\tools\install.ps1","$projectRoot\tools\uninstall.ps1","$projectRoot\tools\update.ps1" -Destination "$packageRoot\tools" -Force
 Copy-Item -LiteralPath $license -Destination "$packageRoot\Dear-ImGui-LICENSE.txt" -Force
 Copy-Item -LiteralPath "$projectRoot\CMakeLists.txt","$projectRoot\.gitignore" -Destination $sourceRoot -Force
 Get-ChildItem -LiteralPath "$projectRoot\src" -File | Copy-Item -Destination "$sourceRoot\src" -Force

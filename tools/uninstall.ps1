@@ -20,7 +20,7 @@ try {
     }
     if ($manifest.ScriptChanged -and [IO.File]::Exists($scriptPath)) {
         $scriptFile=Read-GameText $scriptPath
-        $clean=$scriptFile.Text -creplace '(?m)^// LfsPad state connection\r?\n/insim 29999(?:\r?\n|$)', ''
+        $clean=$scriptFile.Text -creplace '(?m)^// LfsPad state connection\r?\n/insim [0-9]{1,5}(?:\r?\n|$)', ''
         if ($clean -cne $scriptFile.Text) {
             [IO.File]::WriteAllBytes($cleanScript,$scriptFile.Encoding.GetBytes($clean))
         }

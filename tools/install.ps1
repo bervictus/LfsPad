@@ -1,4 +1,5 @@
-param([string]$GameDirectory='C:\LFS', [string]$DllPath='', [switch]$Diagnostics, [switch]$Update)
+param([string]$GameDirectory='C:\LFS', [string]$DllPath='', [switch]$Diagnostics, [switch]$Update,
+    [string]$ExpectedCurrentHash='', [string]$ExpectedNewHash='')
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot\install-common.ps1"
 $gameRoot=[IO.Path]::GetFullPath($GameDirectory).TrimEnd('\')
@@ -24,23 +25,61 @@ try {
         if ($Diagnostics) { throw 'Change Diagnostics in LfsPad.ini after updating if needed.' }
         $installation=Read-Installation $gameRoot $manifestPath
         $manifest=$installation.Record
-        if ($newHash -eq $installation.CurrentHash -and $newHash -eq $manifest.InstalledHash) {
+        if ($ExpectedCurrentHash -or $ExpectedNewHash) {
+            if ($ExpectedCurrentHash -ne $installation.CurrentHash -or
+                $ExpectedCurrentHash -ne $manifest.InstalledHash -or
+                $ExpectedNewHash -ne $newHash -or !(Test-AutoUpdateEnabled $gameRoot)) {
+                throw 'Automatic update was cancelled because the installation or settings changed.'
+            }
+        }
+        $autoexec="$gameRoot\data\script\autoexec.lfs"
+        $repairScript=$false
+        if (!$ExpectedCurrentHash) {
+            $scriptFile=Read-GameText $autoexec
+            $repairScript=$null -eq (Get-StartupInSimPort $scriptFile.Text)
+        }
+        if (!$repairScript -and $newHash -eq $installation.CurrentHash -and $newHash -eq $manifest.InstalledHash) {
+            if ($PSScriptRoot -ne "$gameRoot\addons\LfsPad\update" -and
+                [IO.File]::Exists("$PSScriptRoot\update.ps1")) {
+                Install-UpdateWorker $gameRoot $PSScriptRoot (New-BackupFolder $gameRoot 'worker-')
+            }
             Write-Output 'This LfsPad build is already installed.'
             return
         }
         $backup=New-BackupFolder $gameRoot 'update-'
+        Install-UpdateWorker $gameRoot $PSScriptRoot $backup
         $stagedDll="$backup\dinput8.new"
         $stagedManifest="$backup\installation.new"
         $savedDll="$backup\dinput8.dll"
+        $savedScript="$backup\autoexec.lfs"
+        $scriptExisted=[IO.File]::Exists($autoexec)
+        if ($repairScript) {
+            $port=Get-LfsPadGeneralInt $gameRoot 'InSimPort' 29999
+            if ($port -lt 1 -or $port -gt 65535) { $port=29999 }
+            $command="`r`n// LfsPad state connection`r`n/insim $port`r`n"
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $autoexec)) | Out-Null
+            [IO.File]::WriteAllBytes("$backup\autoexec.new",$scriptFile.Encoding.GetBytes($scriptFile.Text+$command))
+            $manifest.ScriptChanged=$true
+        }
         Copy-Item -LiteralPath $dllFull -Destination $stagedDll
         if ((Get-FileHash -LiteralPath $stagedDll).Hash -ne $newHash) { throw 'Update copy verification failed.' }
         $manifest.InstalledHash=$newHash
         $manifest | ConvertTo-Json | Set-Content -LiteralPath $stagedManifest -Encoding utf8
         [IO.File]::Replace($stagedDll,$installedDll,$savedDll)
+        $scriptApplied=$false
         try {
+            if ($repairScript) {
+                if ($scriptExisted) { [IO.File]::Replace("$backup\autoexec.new",$autoexec,$savedScript) }
+                else { [IO.File]::Move("$backup\autoexec.new",$autoexec) }
+                $scriptApplied=$true
+            }
             [IO.File]::Replace($stagedManifest,$manifestPath,"$backup\installation.json")
         } catch {
             Set-InstallationFile $savedDll $installedDll
+            if ($scriptApplied) {
+                if ($scriptExisted) { Set-InstallationFile $savedScript $autoexec }
+                else { [IO.File]::Delete($autoexec) }
+            }
             throw
         }
         Write-Output "Updated LfsPad. Previous release backed up in $backup"
@@ -62,6 +101,7 @@ try {
     $iniText=Set-LfsPadInSimPort $iniFile.Text $port
     if ($Diagnostics) { $iniText=$iniText -replace '(?im)^Diagnostics=\d+', 'Diagnostics=1' }
     $backup=New-BackupFolder $gameRoot
+    Install-UpdateWorker $gameRoot $PSScriptRoot $backup
     $existing=@()
     foreach ($relative in @('dinput8.dll','cfg.txt','interface_cfg.txt','data\script\autoexec.lfs','LfsPad.ini')) {
         $original=Join-Path $gameRoot $relative

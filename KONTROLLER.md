@@ -2,7 +2,7 @@
 
 **Türkçe** · [English](CONTROLS.md)
 
-Menüde iki tetiği birlikte tut. **Dil** satırını sağ/sol ile değiştir, A ile kaydet veya B ile vazgeç.
+Menüde iki tetiği birlikte tut. Ayarlarda **LB/RB** ile Genel, Kontroller, Sürüş ve Kısayollar sekmeleri arasında geç. **Genel → Dil** satırını sağ/sol ile değiştir, A ile kaydet veya B ile vazgeç.
 
 **Kontrolcü simgeleri** satırı, köşelerdeki normal tuş ipuçlarını açar veya kapatır. Kapatınca atama, kısayol ve onay gibi anlık yönlendirmeler yazıyla görünür.
 
@@ -35,13 +35,13 @@ Otomatik seçimde LfsPad önce bağlı XInput kollarına bakar. İstediğin kolu
 | Seçenekler | Kontroller | Tamam | Ekran | Grafik |
 | Durdurma menüsü | Devam et | Pit | Seçenekler | Tekrarlamayı göster |
 
-**Bir yönü değiştirmek için** LT ve RT’yi tutup **Kişisel menü kısayolları** satırını A ile aç. D-pad yukarı/aşağı ile satırı seç, sol/sağ ile değiştir. Örneğin garajda sağ yöne **Kaplama seç** atayabilirsin. Böylece **Renkler** sekmesindeyken Back + sağ seni o düğmeye götürür. Ana menüde **Eğitim** de seçenekler arasında.
+**Bir yönü değiştirmek için** LT ve RT’yi tutup **Kısayollar → Kişisel menü kısayolları** satırını A ile aç. D-pad yukarı/aşağı ile satırı seç, sol/sağ ile değiştir. Örneğin garajda sağ yöne **Kaplama seç** atayabilirsin. Böylece **Renkler** sekmesindeyken Back + sağ seni o düğmeye götürür. Ana menüde **Eğitim** de seçenekler arasında.
 
 Bir hedefi başka bir yöne verirsen iki kısayol yer değiştirir. Bir yönü boş bırakmak için **Kapalı**’yı seç. **X**, seçili menünün dört yönünü ilk hâline getirir. Bitirince **A** ile ayarlara dön ve kaydetmek için bir kez daha **A**’ya bas. **B**, açık ekrandaki değişiklikleri iptal eder.
 
 ## Tuşları değiştirmek
 
-Menüde **LT + RT**’yi yaklaşık yarım saniye basılı tut. Değiştirmek istediğin görevin üzerine gel ve **X**’e bas. Tuşları bırak, sonra kullanmak istediğin tuşa bas. Vazgeçersen iki tetiğe birlikte bas. Tuşları D-pad sol/sağ ile listeden de seçebilirsin.
+Menüde **LT + RT**’yi yaklaşık yarım saniye basılı tut. **Kontroller** sekmesinde değiştirmek istediğin görevin üzerine gel ve **X**’e bas. Tuşları bırak, sonra kullanmak istediğin tuşa bas. Vazgeçersen iki tetiğe birlikte bas. Tuşları D-pad sol/sağ ile listeden de seçebilirsin.
 
 Dokuz menü görevine A, B, X, Y, LB, RB, Start, Back, R3, L3 veya dört D-pad yönünden birini atayabilirsin. Menüde bu yön bir eyleme ayrıldığında gezinmek için sol analogu kullan. Seçtiğin tuş başka bir görevdeyse iki görev tuş değiştirir. Ayarlar ekranında fiziksel **A** her zaman kaydeder, **B** değişiklikleri iptal eder. Kontrolcü seçimini kaydetmek için seçtiğin kolun bağlı olması gerekir.
 
@@ -54,7 +54,7 @@ Dokuz menü görevine A, B, X, Y, LB, RB, Start, Back, R3, L3 veya dört D-pad y
 - **Görüntüleyici**’de sağ analogla aracı çevir. LT uzaklaştırır, RT yakınlaştırır. B’ye bastığında garaja, aynı düğmeye dönersin. Alt+Tab yaptıysan veya kolun bağlantısı kesildiyse dönünce analogu ve tetikleri bırakıp tekrar kullan.
 - **Tekrar, sunucu ve mod araç listelerinde** yukarı/aşağı basılı tuttukça daha hızlı ilerlersin. LB/RB ile sayfa atlayabilirsin. Aynı oturumda listeye döndüğünde son baktığın satır hâlâ varsa oradan devam edersin.
 - **Yazı alanında** klavye kendiliğinden açılmazsa Y’ye bas. Türkçe harfleri, rakamları ve € ile £ dahil sembolleri kullanabilirsin. Yazdıklarını oyunun kendi alanında görürsün. Parolayı LFS gizler.
-- **RFS penceresinde** veya D-pad ile ulaşamadığın bir yerde R3 ile imleci açabilirsin. Ana menü aynı oturumda son seçimini hatırlar. Durdurma menüsü **Devam et**, seçenekler ise açık olan kategori üzerinde başlar.
+- **RFS’de** LFS’nin Seçenekler menüsündeyken LB + RB ile RFS imlecine geç. Sağ analogla **RFS** sekmesine gel ve A ile aç. A’yı basılı tutarak sürükle, D-pad yukarı/aşağı ile kaydır. B ile imleci kapat.
 
 ## Sürüş ve tekrarlar
 
@@ -70,7 +70,7 @@ Dokuz menü görevine A, B, X, Y, LB, RB, Start, Back, R3, L3 veya dört D-pad y
 
 ## Titreşim
 
-LfsPad ayarlarında ilk satırdayken D-pad’de yukarı basarak **Sürüş titreşimi**’ne geç. Sol/sağ ile şiddeti ayarla, X ile dene, A ile kaydet. İlk kurulumda şiddet %50’dir. Kapatmak için %0’ı seç. F710’da kolun üzerindeki titreşim düğmesini de aç. X ile yaptığın testten sonra sürücünün titreşim komutunu kabul edip etmediğini ekranda görebilirsin.
+LfsPad ayarlarında **Sürüş → Sürüş titreşimi** satırına geç. Sol/sağ ile şiddeti ayarla, X ile dene, A ile kaydet. İlk kurulumda şiddet %50’dir. Kapatmak için %0’ı seç. F710’da kolun üzerindeki titreşim düğmesini de aç. X ile yaptığın testten sonra sürücünün titreşim komutunu kabul edip etmediğini ekranda görebilirsin.
 
 Birden fazla kol bağlıysa **Otomatik** mod sürüş girdisi veren kolu izler. Tuşları bırakınca titreşim son kullanılan kolda kalır. **Kontrolcü** satırından sabit bir kaynak da seçebilirsin. XInput ve SDL gamepad titreşimi desteklenir. Tuş eşlemesi bulunmayan tek bir DirectInput gamepad’i, sürücüsü izin veriyorsa sürüş titreşimini alabilir. PlayStation kollarında titreşim için USB kullan. Bluetooth bağlantısı LFS’nin okuyabildiği giriş modunda çalışır.
 
