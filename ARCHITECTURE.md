@@ -4,9 +4,9 @@ LfsPad, Windows için 32 bit LFS 0.8C38 ile çalışır. Bu sürümün SHA-256 �
 
 ## Yükleme ve çizim
 
-`dinput8.dll` altı DirectInput dışa aktarımını sağlar. Önce `LfsPad.previous.dll`, yoksa mutlak System32 yolu yüklenir. Bu kurulumda önceki DLL RFS yükleyicisidir. DLL_PROCESS_ATTACH aşamasında DXGI ve Winsock çağrıları yönlendirilir. Dosya doğrulaması, RFS yükleme ve grafik kurulumu bu çağrılar oyun tarafından kullanıldığında Windows yükleyici kilidinin dışında yapılır.
+`dxgi.dll`, LfsPad’i oyunla birlikte yükler ve DXGI çağrılarını mutlak sistem yolundaki Windows kitaplığına aktarır. RFS kendi `dinput8.dll` dosyasıyla yüklenir ve bu dosyayı güncelleyebilir. DLL_PROCESS_ATTACH aşamasında LFS’nin çözülmüş DirectInput ve Winsock girişleri bağlanır. Dosya doğrulaması ve grafik kurulumu Windows yükleyici kilidinin dışında yapılır.
 
-Ana modülün `CreateDXGIFactory1` importu, factory `CreateSwapChain`, swapchain `Present` ve `ResizeBuffers` yollarına bağlanılır. Dear ImGui DX11 backend çizim durumunu korur; render target ve depth view ayrıca saklanıp geri verilir. Resize öncesi kendi render target referansı bırakılır. Gerçek WM_DESTROY/WM_NCDESTROY ve DLL ayrılması giriş yakalamayı kapatır. WM_CLOSE tek başına kapanış sayılmaz.
+Oyun `CreateDXGIFactory1` çağırdığında factory `CreateSwapChain`, swapchain `Present` ve `ResizeBuffers` yolları bağlanır. Dear ImGui DX11 backend çizim durumunu korur. Render target ve depth view ayrıca saklanıp geri verilir. Resize öncesi kendi render target referansı bırakılır. Gerçek WM_DESTROY/WM_NCDESTROY ve DLL ayrılması giriş yakalamayı kapatır. WM_CLOSE tek başına kapanış sayılmaz.
 
 ## Sürüş titreşimi
 
@@ -105,11 +105,11 @@ ZIP paketinde de aynı betikler bulunur. LFS kapalıyken paketi çıkardığın 
 ./tools/uninstall.ps1 -GameDirectory 'C:\LFS'
 ```
 
-Kurucu, mevcut DLL’leri ve yedekleri kayıtlı SHA-256 özetleriyle karşılaştırır. Bir yükleyici, birebir aynı eski DLL’yi geri koyduysa **Güncelle** ile LfsPad yeniden etkinleşir. Değiştirilmiş DLL’ler korunur. Kaldırma sırasında güncel `LfsPad.ini` dosyası oyun klasöründe kalır.
+Kurucu, eski kurulumları kayıtlı SHA-256 özetleriyle doğrular. Eski LfsPad yükleyicisi hâlâ `dinput8.dll` olarak duruyorsa kurucu zincirdeki özgün dosyayı geri yükler. RFS bu dosyayı güncellemişse kurucu onu yerinde bırakır. Oyun klasöründe başka bir DXGI modu varsa kurulum durur. Kaldırma sırasında `LfsPad.ini` ve RFS dosyaları korunur.
 
 ## Otomatik güncellemeler
 
-Oyun açıldığında LfsPad, kurucunun `addons/LfsPad/update` klasörüne yerleştirdiği betiği görünür bir pencere açmadan çalıştırır. Betik GitHub’daki son kararlı sürüme bakar ve `LfsPad-<sürüm>-update-win32.dll` dosyasının boyutunu, SHA-256 özetini ve x86 biçimini doğrular. Oyun kapanınca kurulum kilidini alır ve kurulu DLL’nin indirme öncesindeki sürümle aynı olduğundan emin olur. Ardından kurucunun kullandığı yedekleme ve dosya değiştirme yoluyla günceller.
+Oyun açıldığında LfsPad, kurucunun `addons/LfsPad/update` klasörüne yerleştirdiği betiği görünür bir pencere açmadan çalıştırır. Betik GitHub’daki son kararlı sürüme bakar ve `LfsPad-<sürüm>-update-dxgi-win32.dll` dosyasının boyutunu, SHA-256 özetini ve x86 biçimini doğrular. Oyun kapanınca kurulum kilidini alır ve kurulu DLL’nin indirme öncesindeki sürümle aynı olduğundan emin olur. Ardından kurucunun kullandığı yedekleme ve dosya değiştirme yoluyla günceller.
 
 Son denetimin sonucu `addons/LfsPad/update/status.log` dosyasındadır. **Genel → Otomatik güncelleme** seçeneği `LfsPad.ini` içindeki `[General]` bölümüne kaydedilir. Sürüm yayımlarken Windows ZIP, kaynak ZIP ve kurulum EXE’siyle birlikte derlemeden çıkan güncelleme DLL’si de GitHub sürümüne eklenir.
 

@@ -1,5 +1,11 @@
 # LfsPad test notları
 
+## LfsPad 0.2.0 — RFS yükleme düzeltmesi
+
+- RFS’nin oyun klasöründeki `dinput8.dll` dosyasını geri yüklemesi, ilk 0.2.0 kurulumunda LfsPad’in devre dışı kalmasına yol açtı. Kurulum LfsPad’i `dxgi.dll` dosyasına taşıdı. Etkin RFS yükleyicisi ve LfsPad ayarları aynı dosya özetleriyle korundu.
+- Gerçek LFS 0.8C38 oturumunda yeni yükleyici ve RFS v1236 birlikte çalıştı. LfsPad, F710’u DirectInput üzerinden algıladı ve gaz/fren eksenlerini ayrı sundu. GitHub sürüm kontrolü çalıştı.
+- Windows PowerShell ve PowerShell 7’de 63 kurulum kontrolü geçti. Testler eski yükleyiciyle kurulumdan geçişi, RFS'nin art arda iki yükleyici değişimini, ayarların korunmasını ve başka bir DXGI moduyla çakışma hâlinde kurulumun durmasını kapsadı.
+
 ## LfsPad 0.2.0
 
 - LFS 0.8C38 ve RFS v1236 birlikte açıldı. Dört ayar sekmesi gezildi ve RFS imleci, tanılama girdisiyle RFS’nin Tuş Atamaları penceresini açtı. Yeni RFS imleci fiziksel tuşlarla ayrıca denenmedi.

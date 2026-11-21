@@ -686,22 +686,35 @@ static HRESULT STDMETHODCALLTYPE createHook(void *obj, REFGUID guid, void **out,
   }
   return hr;
 }
-static HMODULE realInput() {
-  static HMODULE module = []() {
-    const auto previous = path(L"LfsPad.previous.dll");
-    auto prior = previous.empty() ? nullptr : LoadLibraryExW(
-        previous.c_str(), nullptr,
-        LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
-    if (prior) {
-      log("Proxy chain: LfsPad.previous.dll");
-      return prior;
-    }
-    log("Proxy chain: system dinput8.dll");
-    return loadSystemLibrary(L"dinput8.dll");
-  }();
-  return module;
-}
 using Factory = HRESULT(WINAPI *)(REFIID, void **);
+using InputFactory = HRESULT(WINAPI *)(HINSTANCE, DWORD, REFIID, void **, IUnknown *);
+static InputFactory inputOriginal = nullptr;
+static HRESULT WINAPI inputHook(HINSTANCE instance, DWORD version, REFIID iid, void **out,
+                                IUnknown *outer) {
+  const HRESULT hr = inputOriginal(instance, version, iid, out, outer);
+  if (supportedBuild()) {
+    static const bool graphics = [] {
+      installGraphicsHook();
+      return true;
+    }();
+    (void)graphics;
+    if (SUCCEEDED(hr) && out && *out) {
+      auto table = *reinterpret_cast<void ***>(*out);
+      std::lock_guard<std::mutex> lock(hooksMutex);
+      if (table[3] != (void *)createHook) {
+        inputHooks[table] = {(CreateDevice)table[3], IsEqualGUID(iid, IID_IDirectInput8A) != 0};
+        void *old = nullptr;
+        patch(table + 3, (void *)createHook, &old);
+      }
+    }
+  }
+  return hr;
+}
+static FARPROC systemDxgiProc(const char *name) {
+  // Use an absolute system path because the game has loaded this DLL as dxgi.dll.
+  static const HMODULE module = loadSystemLibrary(L"dxgi.dll");
+  return module && module != self ? GetProcAddress(module, name) : nullptr;
+}
 using Process = decltype(&CreateProcessA);
 static Process processOriginal = nullptr;
 static bool automaticHelper(const char *s) {
@@ -819,7 +832,6 @@ static void installNetworkHooks() {
 using CreateSwap = HRESULT(STDMETHODCALLTYPE *)(IDXGIFactory *, IUnknown *,
                                                 DXGI_SWAP_CHAIN_DESC *,
                                                 IDXGISwapChain **);
-static Factory factoryOriginal = nullptr;
 static CreateSwap swapOriginal = nullptr;
 static HRESULT STDMETHODCALLTYPE swapHook(IDXGIFactory *f, IUnknown *d,
                                           DXGI_SWAP_CHAIN_DESC *desc,
@@ -834,11 +846,9 @@ static HRESULT STDMETHODCALLTYPE swapHook(IDXGIFactory *f, IUnknown *d,
   }
   return hr;
 }
-static HRESULT WINAPI factoryHook(REFIID iid, void **out) {
-  realInput();
-  HRESULT hr = factoryOriginal(iid, out);
-  static bool supported = supportedBuild();
-  if (supported && SUCCEEDED(hr) && out && *out) {
+static HRESULT createGameFactory(Factory factory, REFIID iid, void **out) {
+  const HRESULT hr = factory(iid, out);
+  if (supportedBuild() && SUCCEEDED(hr) && out && *out && IsEqualGUID(iid, __uuidof(IDXGIFactory1))) {
     static std::once_flag networkHooks;
     std::call_once(networkHooks, [] {
       processCompatibility();
@@ -867,9 +877,9 @@ static void bootstrap() {
   for (auto imp = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR *>(base + rva);
        imp->Name; ++imp) {
     const auto library = reinterpret_cast<const char *>(base + imp->Name);
-    const bool dxgi = _stricmp(library, "dxgi.dll") == 0;
+    const bool dinput = _stricmp(library, "dinput8.dll") == 0;
     const bool winsock = _stricmp(library, "WS2_32.dll") == 0;
-    if ((!dxgi && !winsock) || !imp->OriginalFirstThunk)
+    if ((!dinput && !winsock) || !imp->OriginalFirstThunk)
       continue;
     auto names = reinterpret_cast<IMAGE_THUNK_DATA *>(base + imp->OriginalFirstThunk);
     auto addresses = reinterpret_cast<IMAGE_THUNK_DATA *>(base + imp->FirstThunk);
@@ -883,11 +893,11 @@ static void bootstrap() {
               reinterpret_cast<void **>(&bindOriginal));
         break;
       }
-      if (dxgi && !ordinal) {
-        auto name = reinterpret_cast<IMAGE_IMPORT_BY_NAME *>(base + names->u1.AddressOfData);
-        if (std::strcmp(reinterpret_cast<const char *>(name->Name), "CreateDXGIFactory1") == 0) {
-          patch(slot, reinterpret_cast<void *>(factoryHook),
-                reinterpret_cast<void **>(&factoryOriginal));
+      if (dinput && !ordinal) {
+        auto name = reinterpret_cast<const IMAGE_IMPORT_BY_NAME *>(base + names->u1.AddressOfData);
+        if (std::strcmp(reinterpret_cast<const char *>(name->Name), "DirectInput8Create") == 0) {
+          patch(slot, reinterpret_cast<void *>(inputHook),
+                reinterpret_cast<void **>(&inputOriginal));
           break;
         }
       }
@@ -895,47 +905,28 @@ static void bootstrap() {
   }
 }
 } // namespace pad
-extern "C" HRESULT WINAPI DirectInput8Create(HINSTANCE instance, DWORD version,
-                                             REFIID iid, void **out,
-                                             IUnknown *outer) {
-  using Fn = HRESULT(WINAPI *)(HINSTANCE, DWORD, REFIID, void **, IUnknown *);
-  auto mod = pad::realInput();
-  auto fn = (Fn)GetProcAddress(mod, "DirectInput8Create");
-  if (!fn)
-    return E_FAIL;
-  HRESULT hr = fn(instance, version, iid, out, outer);
-  static bool enabled = pad::supportedBuild();
-  if (enabled) {
-    static bool hooked = []() {
-      pad::installGraphicsHook();
-      return true;
-    }();
-    (void)hooked;
-    if (SUCCEEDED(hr) && out && *out) {
-      auto table = *reinterpret_cast<void ***>(*out);
-      std::lock_guard<std::mutex> l(pad::hooksMutex);
-      if (table[3] != (void *)pad::createHook) {
-        pad::inputHooks[table] = {(pad::CreateDevice)table[3],
-                                 IsEqualGUID(iid, IID_IDirectInput8A) != 0};
-        void *old = nullptr;
-        pad::patch(table + 3, (void *)pad::createHook, &old);
-      }
-    }
-  }
-  return hr;
+extern "C" HRESULT WINAPI forwardFactory(REFIID iid, void **out) {
+  static const auto factory = reinterpret_cast<pad::Factory>(pad::systemDxgiProc("CreateDXGIFactory"));
+  return factory ? factory(iid, out) : DXGI_ERROR_UNSUPPORTED;
 }
-extern "C" HRESULT WINAPI DllCanUnloadNow() { return S_FALSE; }
-extern "C" HRESULT WINAPI DllGetClassObject(REFCLSID c, REFIID i, void **out) {
-  using Fn = HRESULT(WINAPI *)(REFCLSID, REFIID, void **);
-  auto f = (Fn)GetProcAddress(pad::realInput(), "DllGetClassObject");
-  return f ? f(c, i, out) : CLASS_E_CLASSNOTAVAILABLE;
+extern "C" HRESULT WINAPI forwardFactory1(REFIID iid, void **out) {
+  static const auto factory = reinterpret_cast<pad::Factory>(pad::systemDxgiProc("CreateDXGIFactory1"));
+  return factory ? pad::createGameFactory(factory, iid, out) : DXGI_ERROR_UNSUPPORTED;
 }
-extern "C" HRESULT WINAPI DllRegisterServer() { return E_NOTIMPL; }
-extern "C" HRESULT WINAPI DllUnregisterServer() { return E_NOTIMPL; }
-extern "C" const DIDATAFORMAT *WINAPI GetdfDIJoystick() {
-  using Fn = const DIDATAFORMAT *(WINAPI *)();
-  auto f = (Fn)GetProcAddress(pad::realInput(), "GetdfDIJoystick");
-  return f ? f() : nullptr;
+extern "C" HRESULT WINAPI forwardFactory2(UINT flags, REFIID iid, void **out) {
+  using Fn = HRESULT(WINAPI *)(UINT, REFIID, void **);
+  static const auto factory = reinterpret_cast<Fn>(pad::systemDxgiProc("CreateDXGIFactory2"));
+  return factory ? factory(flags, iid, out) : DXGI_ERROR_UNSUPPORTED;
+}
+extern "C" HRESULT WINAPI forwardAdapterRemoval() {
+  using Fn = HRESULT(WINAPI *)();
+  static const auto declare = reinterpret_cast<Fn>(pad::systemDxgiProc("DXGIDeclareAdapterRemovalSupport"));
+  return declare ? declare() : DXGI_ERROR_UNSUPPORTED;
+}
+extern "C" HRESULT WINAPI forwardDebugInterface(UINT flags, REFIID iid, void **out) {
+  using Fn = HRESULT(WINAPI *)(UINT, REFIID, void **);
+  static const auto debug = reinterpret_cast<Fn>(pad::systemDxgiProc("DXGIGetDebugInterface1"));
+  return debug ? debug(flags, iid, out) : E_NOINTERFACE;
 }
 BOOL WINAPI DllMain(HINSTANCE h, DWORD reason, void *) {
   if (reason == DLL_PROCESS_ATTACH) {

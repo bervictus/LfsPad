@@ -450,7 +450,7 @@ namespace LfsPadSetup
             string script = Path.Combine(tools, scriptName);
             string common = Path.Combine(tools, "install-common.ps1");
             string worker = Path.Combine(tools, "update.ps1");
-            string dll = Path.Combine(staging, "dinput8.dll");
+            string dll = Path.Combine(staging, "dxgi.dll");
             string ini = Path.Combine(staging, "LfsPad.ini");
             try
             {
@@ -460,7 +460,7 @@ namespace LfsPadSetup
                 if (!uninstall)
                 {
                     Extract("update.ps1", worker);
-                    Extract("dinput8.dll", dll);
+                    Extract("dxgi.dll", dll);
                     Extract("LfsPad.ini", ini);
                     if (Ui.English)
                         File.WriteAllText(ini, File.ReadAllText(ini).Replace("Language=tr", "Language=en"));
@@ -495,6 +495,8 @@ namespace LfsPadSetup
                             detail = Ui.T("Bu klasörde farklı bir LFS sürümü var. LFS 0.8C38’in kurulu olduğu klasörü seç.", "Select the folder containing LFS 0.8C38.");
                         else if (detail.Contains("Invalid InSim port in autoexec.lfs"))
                             detail = Ui.T("autoexec.lfs dosyasındaki InSim portu geçersiz. /insim komutunda 1 ile 65535 arasında bir port kullan.", "The InSim port in autoexec.lfs is invalid. Use a port from 1 to 65535 after /insim.");
+                        else if (detail.Contains("Another dxgi.dll is already installed"))
+                            detail = Ui.T("Oyun klasöründe başka bir moda ait dxgi.dll var. Kurulum bu dosyayı değiştirmedi.", "The game folder already contains a dxgi.dll from another mod. Setup left that file in place.");
                         if (detail.Length == 0)
                             detail = Ui.T("Kurulum betiği hata koduyla kapandı (", "Setup returned error code (") + process.ExitCode + ").";
                         throw new InvalidOperationException(detail);

@@ -31,8 +31,8 @@ function Open-Installation([string]$Root) {
                 throw 'Close LFS before changing the installation.'
             }
         }
-        foreach ($relative in @('LFS.exe','dinput8.dll','LfsPad.previous.dll','LfsPad.ini',
-                'data\script\autoexec.lfs','cfg.txt','interface_cfg.txt','addons\LfsPad\installation.json')) {
+        foreach ($relative in @('LFS.exe','dxgi.dll','LfsPad.ini',
+                'data\script\autoexec.lfs','addons\LfsPad\installation.json')) {
             Assert-SafePath (Join-Path $Root $relative)
         }
         return $lock
@@ -42,7 +42,7 @@ function Open-Installation([string]$Root) {
     }
 }
 
-function Read-Installation([string]$Root, [string]$ManifestPath) {
+function Read-Installation([string]$Root, [string]$ManifestPath, [switch]$Migrate) {
     $record=Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
     if ($record -is [array] -or $record.GameDirectory -ne $Root -or
         $record.InstalledHash -notmatch '^[A-Fa-f0-9]{64}$' -or
@@ -56,7 +56,19 @@ function Read-Installation([string]$Root, [string]$ManifestPath) {
     if ([IO.Path]::GetDirectoryName($backup) -ne $backupParent) { throw 'Unexpected backup location.' }
     Assert-SafePath $backup -Directory
     if (![IO.Directory]::Exists($backup)) { throw 'Installation backup directory is missing.' }
+    $record.BackupDirectory=$backup
+    if ($record.Loader -ceq 'dxgi') {
+        $currentHash=(Get-FileHash -LiteralPath "$Root\dxgi.dll").Hash
+        if ($currentHash -ne $record.InstalledHash) {
+            throw 'Installed LfsPad does not match the installation record.'
+        }
+        return @{Record=$record; CurrentHash=$currentHash; Legacy=$false}
+    }
+    if ($record.PSObject.Properties['Loader']) { throw 'Unknown LfsPad loader in installation record.' }
+    $directInput="$Root\dinput8.dll"
     $previous="$Root\LfsPad.previous.dll"
+    Assert-SafePath $directInput
+    Assert-SafePath $previous
     $previousHash=if ([IO.File]::Exists($previous)) { (Get-FileHash -LiteralPath $previous).Hash } else { '' }
     if ($previousHash -ne $record.PreviousHash) { throw 'The chained DLL changed.' }
     if ($record.PreviousHash) {
@@ -66,12 +78,15 @@ function Read-Installation([string]$Root, [string]$ManifestPath) {
             throw 'The backed-up DLL changed.'
         }
     }
-    $currentHash=(Get-FileHash -LiteralPath "$Root\dinput8.dll").Hash
+    $currentHash=if ([IO.File]::Exists($directInput)) { (Get-FileHash -LiteralPath $directInput).Hash } else { '' }
     if ($currentHash -ne $record.InstalledHash -and $currentHash -ne $previousHash) {
-        throw 'Installed LfsPad does not match the installation record.'
+        if (!$Migrate -or ($currentHash -and
+                [Diagnostics.FileVersionInfo]::GetVersionInfo($directInput).ProductName -cne 'RFS - Live for Speed role-play mod')) {
+            throw 'Installed LfsPad does not match the installation record.'
+        }
+        if ($currentHash) { Assert-Win32Dll $directInput }
     }
-    $record.BackupDirectory=$backup
-    return @{Record=$record; CurrentHash=$currentHash}
+    return @{Record=$record; CurrentHash=$currentHash; Legacy=$true}
 }
 
 function New-BackupFolder([string]$Root, [string]$Prefix='') {
@@ -127,6 +142,38 @@ function Set-InstallationFile([string]$Staged, [string]$Destination) {
         [IO.File]::Replace($Staged,$Destination,$backup)
     } else {
         [IO.File]::Move($Staged,$Destination)
+    }
+}
+
+function Set-InstallationFiles([string]$Root, [string]$Backup,
+        [Collections.IDictionary]$Changes, [switch]$NewLoader) {
+    $applied=[Collections.Generic.List[string]]::new()
+    try {
+        foreach ($relative in $Changes.Keys) {
+            $destination=Join-Path $Root $relative
+            $saved=Join-Path $Backup "before\$relative"
+            $staged=$Changes[$relative]
+            Assert-SafePath $destination
+            if ($NewLoader -and $relative -eq 'dxgi.dll') {
+                [IO.File]::Move($staged,$destination)
+            } elseif ([IO.File]::Exists($destination)) {
+                [IO.Directory]::CreateDirectory((Split-Path -Parent $saved)) | Out-Null
+                if ($staged) { [IO.File]::Replace($staged,$destination,$saved) }
+                else { [IO.File]::Move($destination,$saved) }
+            } elseif ($staged) {
+                [IO.File]::Move($staged,$destination)
+            } else { continue }
+            $applied.Add($relative)
+        }
+    } catch {
+        $applied.Reverse()
+        foreach ($relative in $applied) {
+            $destination=Join-Path $Root $relative
+            $saved=Join-Path $Backup "before\$relative"
+            if ([IO.File]::Exists($saved)) { Set-InstallationFile $saved $destination }
+            else { [IO.File]::Delete($destination) }
+        }
+        throw
     }
 }
 

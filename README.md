@@ -6,13 +6,13 @@ LfsPad ile Live for Speed’de tek oyunculu bir yarış açabilir, garajda araba
 
 ## Kurulum ve kaldırma
 
-1. LFS’yi kapat ve [Windows kurulum dosyasını indir](https://github.com/bervictus/LfsPad/releases/download/v0.2.0/LfsPad-0.2.0-setup.exe).
+1. LFS’yi kapat ve [0.2.0 RFS düzeltmesini içeren kurucuyu indir](https://github.com/bervictus/LfsPad/releases/download/v0.2.0/LfsPad-0.2.0-rfs-setup.exe).
 2. **İleri**’ye bas ve kurucunun bulduğu klasörü kontrol et. Oyun başka bir yerdeyse **Göz at** ile `LFS.exe` dosyasının bulunduğu klasörü seç.
 3. **Kur**’a bas ve oyunu aç. LfsPad zaten kuruluysa **Güncelle**’ye bas. Tuş atamaların ve diğer ayarların korunur.
 
 Kurucu, LFS’nin başlangıç betiğinde ayarlı olan InSim portunu kullanır. LfsPad’in kullandığı porta varsayılan olarak yalnızca bu bilgisayardan bağlanılabilir. Başka bir bilgisayardaki InSim aracını da kullanıyorsan [InSim ayarına](ARCHITECTURE.md#insim-bağlantısı) bak.
 
-Kaldırmak istediğinde aynı dosyayı aç, oyun klasörünü seç ve **Kaldır**’a bas. Önceden RFS kullanıyorsan kurucu yedeklediği DLL’yi yerine koyar. ZIP paketini tercih edersen [elle kurulum adımlarını](ARCHITECTURE.md#kurulum-betikleri) izleyebilirsin.
+İlk 0.2.0 paketini kurduysan yeni EXE’yi bir kez çalıştırıp **Güncelle**’ye bas. Bu işlem LfsPad’i ayrı bir dosyaya taşır, böylece RFS kendi yükleyicisini güncelleyebilir. Kaldırmak istediğinde aynı EXE’yi aç ve **LfsPad’i kaldır**’a bas. ZIP paketini tercih edersen [elle kurulum adımlarını](ARCHITECTURE.md#kurulum-betikleri) izleyebilirsin.
 
 ## Hangi kontrolcülerle çalışıyor?
 

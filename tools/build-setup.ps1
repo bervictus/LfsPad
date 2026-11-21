@@ -5,12 +5,12 @@ $versionLine=Select-String -LiteralPath "$buildRoot\CMakeCache.txt" -Pattern '^C
 if (!$versionLine) { throw 'Run tools/build.ps1 before building the installer.' }
 $version=$versionLine.Matches[0].Groups[1].Value
 $artifactRoot=Join-Path $projectRoot 'artifacts'
-$payloadRoot=Join-Path $artifactRoot "LfsPad-$version"
+$payloadRoot=Join-Path $artifactRoot "LfsPad-$version-rfs"
 $compiler=Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe'
 if (!(Test-Path -LiteralPath $compiler)) { throw 'The .NET Framework C# compiler is missing.' }
 
 $resources=@(
-    @{File='dinput8.dll'; Name='dinput8.dll'},
+    @{File='dxgi.dll'; Name='dxgi.dll'},
     @{File='LfsPad.ini'; Name='LfsPad.ini'},
     @{File='tools\install-common.ps1'; Name='install-common.ps1'},
     @{File='tools\install.ps1'; Name='install.ps1'},
@@ -25,8 +25,8 @@ $resourceFlags=foreach ($resource in $resources) {
     if (!(Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing package file: $path" }
     "/resource:$path,$($resource.Name)"
 }
-$dllHash=(Get-FileHash -LiteralPath "$payloadRoot\dinput8.dll").Hash
-if ($dllHash -ne (Get-FileHash -LiteralPath "$buildRoot\dinput8.dll").Hash) {
+$dllHash=(Get-FileHash -LiteralPath "$payloadRoot\dxgi.dll").Hash
+if ($dllHash -ne (Get-FileHash -LiteralPath "$buildRoot\dxgi.dll").Hash) {
     throw 'The package DLL differs from the current build. Run tools/package.ps1 first.'
 }
 
@@ -39,7 +39,7 @@ using System.Reflection;
 [assembly: AssemblyFileVersion("$version.0")]
 [assembly: AssemblyInformationalVersion("$version")]
 "@ | Set-Content -LiteralPath $versionSource -Encoding ascii
-$output=Join-Path $artifactRoot "LfsPad-$version-setup.exe"
+$output=Join-Path $artifactRoot "LfsPad-$version-rfs-setup.exe"
 & $compiler /nologo /target:winexe /optimize+ /platform:anycpu /codepage:65001 `
     /reference:System.Drawing.dll /reference:System.Windows.Forms.dll "/out:$output" `
     @resourceFlags "$PSScriptRoot\setup\LfsPadSetup.cs" $versionSource

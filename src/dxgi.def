@@ -1,0 +1,7 @@
+LIBRARY dxgi
+EXPORTS
+ CreateDXGIFactory=forwardFactory
+ CreateDXGIFactory1=forwardFactory1
+ CreateDXGIFactory2=forwardFactory2
+ DXGIDeclareAdapterRemovalSupport=forwardAdapterRemoval
+ DXGIGetDebugInterface1=forwardDebugInterface

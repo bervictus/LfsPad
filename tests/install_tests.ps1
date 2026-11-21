@@ -22,74 +22,91 @@ function New-Fixture([string]$Name) {
 function Install([string]$Root) { & "$projectRoot\tools\install.ps1" -GameDirectory $Root | Out-Null }
 function Uninstall([string]$Root) { & "$projectRoot\tools\uninstall.ps1" -GameDirectory $Root | Out-Null }
 try {
-    $root=New-Fixture 'existing-chain'
-    [IO.File]::WriteAllText("$root\dinput8.dll",'original-loader-fixture')
-    [IO.File]::WriteAllText("$root\LfsPad.ini","[Input]`r`nDeadzonePercent=31")
-    [IO.File]::WriteAllText("$root\data\script\autoexec.lfs","// existing`r`n/insim 29999`r`n")
-    $originalHash=(Get-FileHash -LiteralPath "$root\dinput8.dll").Hash
+    $root=New-Fixture 'rfs-loader'
+    $directInput="$root\dinput8.dll"
+    $dxgi="$root\dxgi.dll"
+    $ini="$root\LfsPad.ini"
+    [IO.File]::WriteAllText($directInput,'original-rfs-loader-fixture')
+    [IO.File]::WriteAllText($ini,"[Input]"+[Environment]::NewLine+"DeadzonePercent=31")
+    [IO.File]::WriteAllText("$root\data\script\autoexec.lfs",'/insim 29999')
+    $originalHash=(Get-FileHash -LiteralPath $directInput).Hash
     $scriptHash=(Get-FileHash -LiteralPath "$root\data\script\autoexec.lfs").Hash
+    $iniHash=(Get-FileHash -LiteralPath $ini).Hash
+    $builtDll="$projectRoot\build\dxgi.dll"
     Install $root
-    Check ((Get-FileHash -LiteralPath "$root\LfsPad.previous.dll").Hash -eq $originalHash) 'loader chain preserved'
-    Check ((Get-FileHash -LiteralPath "$root\dinput8.dll").Hash -eq (Get-FileHash -LiteralPath "$projectRoot\build\dinput8.dll").Hash) 'installed build matches'
+    $currentHash=(Get-FileHash -LiteralPath $builtDll).Hash
+    Check ((Get-FileHash -LiteralPath $directInput).Hash -eq $originalHash) 'RFS keeps its own dinput8 on installation'
+    Check ((Get-FileHash -LiteralPath $dxgi).Hash -eq $currentHash) 'LfsPad uses a separate loader'
+    Check (![IO.File]::Exists("$root\LfsPad.previous.dll")) 'no extra copy of RFS loader created'
     Check ((Get-FileHash -LiteralPath "$root\data\script\autoexec.lfs").Hash -eq $scriptHash) 'existing InSim script unchanged'
-    Check ([IO.File]::ReadAllText("$root\LfsPad.ini").Contains('31')) 'existing settings retained'
+    Check ((Get-FileHash -LiteralPath $ini).Hash -eq $iniHash) 'existing settings retained'
     $worker="$root\addons\LfsPad\update\update.ps1"
     Check ((Get-FileHash -LiteralPath $worker).Hash -eq
         (Get-FileHash -LiteralPath "$projectRoot\tools\update.ps1").Hash) 'updater installed'
     Reject { Install $root } 'double installation refused'
-    [IO.File]::AppendAllText("$root\dinput8.dll",'modified')
-    $modifiedHash=(Get-FileHash -LiteralPath "$root\dinput8.dll").Hash
-    Reject { Uninstall $root } 'changed installed DLL protected'
-    Check ((Get-FileHash -LiteralPath "$root\dinput8.dll").Hash -eq $modifiedHash) 'rejected uninstall did not change DLL'
-    Copy-Item -LiteralPath "$projectRoot\build\dinput8.dll" -Destination "$root\dinput8.dll" -Force
+    [IO.File]::AppendAllText($dxgi,'modified')
+    $modifiedHash=(Get-FileHash -LiteralPath $dxgi).Hash
+    Reject { Uninstall $root } 'changed LfsPad DLL protected'
+    Check ((Get-FileHash -LiteralPath $dxgi).Hash -eq $modifiedHash) 'rejected uninstall did not change DLL'
+    Copy-Item -LiteralPath $builtDll -Destination $dxgi -Force
+
+    # The RFS updater owns dinput8.dll and may replace it repeatedly.
+    [IO.File]::WriteAllText($directInput,'first-rfs-update-fixture')
+    $rfsUpdateHash=(Get-FileHash -LiteralPath $directInput).Hash
     $update=Join-Path $fixtureRoot 'update.dll'
-    Copy-Item -LiteralPath "$projectRoot\build\dinput8.dll" -Destination $update
-    [IO.File]::AppendAllText($update,'updated-proxy-fixture')
-    $currentHash=(Get-FileHash -LiteralPath "$root\dinput8.dll").Hash
+    Copy-Item -LiteralPath $builtDll -Destination $update
+    [IO.File]::AppendAllText($update,'updated-lfspad-fixture')
     $updateHash=(Get-FileHash -LiteralPath $update).Hash
-    Reject {
-        & "$root\addons\LfsPad\update\install.ps1" -GameDirectory $root -DllPath $update -Update `
-            -ExpectedCurrentHash ('0'*64) -ExpectedNewHash $updateHash
-    } 'automatic update rejects stale installed hash'
-    Reject {
-        & "$root\addons\LfsPad\update\install.ps1" -GameDirectory $root -DllPath $update -Update `
-            -ExpectedCurrentHash $currentHash -ExpectedNewHash ('0'*64)
-    } 'automatic update rejects unexpected download hash'
-    $iniBefore=[IO.File]::ReadAllBytes("$root\LfsPad.ini")
-    [IO.File]::AppendAllText("$root\LfsPad.ini","`r`n[General]`r`nAutoUpdate=0")
-    Reject {
-        & "$root\addons\LfsPad\update\install.ps1" -GameDirectory $root -DllPath $update -Update `
-            -ExpectedCurrentHash $currentHash -ExpectedNewHash $updateHash
-    } 'automatic update respects new opt-out'
-    Check ((Get-FileHash -LiteralPath "$root\dinput8.dll").Hash -eq $currentHash) 'rejected automatic updates leave DLL intact'
-    [IO.File]::WriteAllBytes("$root\LfsPad.ini",$iniBefore)
-    $iniHash=(Get-FileHash -LiteralPath "$root\LfsPad.ini").Hash
-    & "$root\addons\LfsPad\update\install.ps1" -GameDirectory $root -DllPath $update -Update `
-        -ExpectedCurrentHash $currentHash -ExpectedNewHash $updateHash | Out-Null
-    Check ((Get-FileHash -LiteralPath "$root\dinput8.dll").Hash -eq (Get-FileHash -LiteralPath $update).Hash) 'update installed'
-    Check ((Get-FileHash -LiteralPath "$root\LfsPad.ini").Hash -eq $iniHash) 'update preserves settings'
-    Check ((Get-FileHash -LiteralPath "$root\LfsPad.previous.dll").Hash -eq $originalHash) 'update preserves original chain'
-    # A co-installed launcher can restore the original proxy. The update
-    # accepts it only when the manifest, chain and backup still agree.
-    Copy-Item -LiteralPath "$root\LfsPad.previous.dll" -Destination "$root\dinput8.dll" -Force
-    & "$projectRoot\tools\install.ps1" -GameDirectory $root -DllPath $update -Update | Out-Null
-    Check ((Get-FileHash -LiteralPath "$root\dinput8.dll").Hash -eq (Get-FileHash -LiteralPath $update).Hash) 'update recovers an exactly restored original loader'
-    $manifestPath="$root\addons\LfsPad\installation.json"
-    $record=Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-    $original="$($record.BackupDirectory)\dinput8.dll"
-    [IO.File]::Move("$root\LfsPad.previous.dll","$fixtureRoot\saved-chain.dll")
-    [IO.File]::WriteAllText($original,'modified-backup')
-    Reject { Uninstall $root } 'missing chain and tampered backup refused'
-    [IO.File]::Move("$fixtureRoot\saved-chain.dll","$root\LfsPad.previous.dll")
-    Reject { Uninstall $root } 'changed backup refused even when chain matches'
-    Check ((Get-FileHash -LiteralPath "$root\dinput8.dll").Hash -eq (Get-FileHash -LiteralPath $update).Hash) 'backup rejection preserved installed DLL'
-    Copy-Item -LiteralPath "$root\LfsPad.previous.dll" -Destination $original -Force
-    [IO.File]::AppendAllText("$root\LfsPad.ini","`r`n; edited after upgrade")
+    $workerInstaller="$root\addons\LfsPad\update\install.ps1"
+    $automatic=@{GameDirectory=$root; DllPath=$update; Update=$true; ExpectedCurrentHash=$currentHash; ExpectedNewHash=$updateHash}
+    $stale=$automatic.Clone()
+    $stale.ExpectedCurrentHash='0'*64
+    Reject { & $workerInstaller @stale } 'automatic update rejects stale installed hash'
+    $invalid=$automatic.Clone()
+    $invalid.ExpectedNewHash='0'*64
+    Reject { & $workerInstaller @invalid } 'automatic update rejects unexpected download hash'
+    $iniBefore=[IO.File]::ReadAllBytes($ini)
+    [IO.File]::AppendAllLines($ini,[string[]]@('','[General]','AutoUpdate=0'))
+    Reject { & $workerInstaller @automatic } 'automatic update respects new opt-out'
+    Check ((Get-FileHash -LiteralPath $dxgi).Hash -eq $currentHash) 'rejected automatic updates leave DLL intact'
+    [IO.File]::WriteAllBytes($ini,$iniBefore)
+    & $workerInstaller @automatic | Out-Null
+    Check ((Get-FileHash -LiteralPath $dxgi).Hash -eq $updateHash) 'automatic update installed after RFS replaced dinput8'
+    Check ((Get-FileHash -LiteralPath $ini).Hash -eq $iniHash) 'update preserves settings'
+    Check ((Get-FileHash -LiteralPath $directInput).Hash -eq $rfsUpdateHash) 'LfsPad update preserves new RFS loader'
+    [IO.File]::WriteAllText($directInput,'second-rfs-update-fixture')
+    $rfsUpdateHash=(Get-FileHash -LiteralPath $directInput).Hash
     Uninstall $root
-    Check ((Get-FileHash -LiteralPath "$root\dinput8.dll").Hash -eq $originalHash) 'original loader restored exactly'
-    Check (!(Test-Path -LiteralPath "$root\LfsPad.previous.dll")) 'owned chain file removed'
-    Check (!(Test-Path -LiteralPath "$root\addons\LfsPad\installation.json")) 'active manifest removed'
-    Check ([IO.File]::ReadAllText("$root\LfsPad.ini").Contains('edited after upgrade')) 'pre-existing config keeps later edits'
+    Check (![IO.File]::Exists($dxgi)) 'uninstall removes only LfsPad loader'
+    Check ((Get-FileHash -LiteralPath $directInput).Hash -eq $rfsUpdateHash) 'uninstall preserves latest RFS loader'
+    Check (![IO.File]::Exists("$root\addons\LfsPad\installation.json")) 'active manifest removed'
+    Check ((Get-FileHash -LiteralPath $ini).Hash -eq $iniHash) 'uninstall preserves settings'
+
+    foreach ($restored in @($false,$true)) {
+        $root=New-Fixture "legacy-$restored"
+        $backup="$root\addons\LfsPad\backups\legacy"
+        [IO.Directory]::CreateDirectory($backup) | Out-Null
+        [IO.File]::WriteAllText("$root\LfsPad.previous.dll",'original-rfs-loader')
+        Copy-Item -LiteralPath "$root\LfsPad.previous.dll" -Destination "$backup\dinput8.dll"
+        [IO.File]::WriteAllText("$root\dinput8.dll",'old-lfspad-loader')
+        $oldHash=(Get-FileHash -LiteralPath "$root\dinput8.dll").Hash
+        $previousHash=(Get-FileHash -LiteralPath "$root\LfsPad.previous.dll").Hash
+        @{GameDirectory=$root; BackupDirectory=$backup; InstalledHash=$oldHash; PreviousHash=$previousHash; ScriptChanged=$false} |
+            ConvertTo-Json | Set-Content -LiteralPath "$root\addons\LfsPad\installation.json"
+        [IO.File]::WriteAllText("$root\LfsPad.ini",'[General]')
+        $iniHash=(Get-FileHash -LiteralPath "$root\LfsPad.ini").Hash
+        if ($restored) { Copy-Item -LiteralPath "$root\LfsPad.previous.dll" -Destination "$root\dinput8.dll" -Force }
+        [IO.File]::AppendAllText("$backup\dinput8.dll",'modified')
+        Reject { & "$projectRoot\tools\install.ps1" -GameDirectory $root -Update } 'migration refuses modified backup'
+        Copy-Item -LiteralPath "$root\LfsPad.previous.dll" -Destination "$backup\dinput8.dll" -Force
+        & "$projectRoot\tools\install.ps1" -GameDirectory $root -Update | Out-Null
+        Check ((Get-FileHash -LiteralPath "$root\dinput8.dll").Hash -eq $previousHash) "migration restores or retains RFS loader: $restored"
+        Check ((Get-FileHash -LiteralPath "$root\dxgi.dll").Hash -eq $currentHash) "migration installs DXGI loader: $restored"
+        Check ((Get-FileHash -LiteralPath "$root\LfsPad.ini").Hash -eq $iniHash) "migration preserves INI: $restored"
+        Check (![IO.File]::Exists("$root\LfsPad.previous.dll")) "migration backs up old chain file: $restored"
+        Uninstall $root
+        Check ((Get-FileHash -LiteralPath "$root\dinput8.dll").Hash -eq $previousHash) "post-migration uninstall leaves RFS intact: $restored"
+    }
 
     $root=New-Fixture 'new-install'
     [IO.File]::WriteAllText("$root\data\script\autoexec.lfs","// existing`r`n/echo keep")
@@ -102,7 +119,8 @@ try {
     Check (!$scriptText.Contains('/insim 29999')) 'owned InSim command removed'
     Check ($scriptText.Contains("/echo keep`r`n/echo later")) 'later user commands kept on separate lines'
     Check ([IO.File]::ReadAllText("$root\LfsPad.ini").Contains('user preference')) 'new user configuration kept'
-    Check (!(Test-Path -LiteralPath "$root\dinput8.dll")) 'no original proxy leaves no DLL'
+    Check (!(Test-Path -LiteralPath "$root\dxgi.dll")) 'uninstall removes loader in a stock install'
+    Check (!(Test-Path -LiteralPath "$root\dinput8.dll")) 'stock install does not create a DirectInput proxy'
 
     $root=New-Fixture 'different-port'
     $scriptPath="$root\data\script\autoexec.lfs"
@@ -156,12 +174,11 @@ try {
     $root=New-Fixture 'unknown-build'
     [IO.File]::AppendAllText("$root\LFS.exe",'unknown-version-fixture')
     Reject { Install $root } 'unknown executable refused'
-    Check (!(Test-Path -LiteralPath "$root\dinput8.dll")) 'unknown build made no DLL'
-    $root=New-Fixture 'unexpected-chain'
-    Install $root
-    [IO.File]::WriteAllText("$root\LfsPad.previous.dll",'other-plugin')
-    Reject { Uninstall $root } 'unexpected chained DLL refused'
-    Check ([IO.File]::Exists("$root\LfsPad.previous.dll")) 'unexpected chained DLL preserved'
+    Check (!(Test-Path -LiteralPath "$root\dxgi.dll")) 'unknown build made no DLL'
+    $root=New-Fixture 'existing-dxgi'
+    [IO.File]::WriteAllText("$root\dxgi.dll",'other-graphics-mod')
+    Reject { Install $root } 'installer refuses to replace another DXGI mod'
+    Check ([IO.File]::ReadAllText("$root\dxgi.dll") -eq 'other-graphics-mod') 'other DXGI mod preserved'
 
     $root=New-Fixture 'linked-directory'
     $outside=Join-Path $fixtureRoot 'outside'

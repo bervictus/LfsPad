@@ -22,7 +22,7 @@ if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 4)
   set(HAVE_DINPUT_H TRUE)
   add_subdirectory("${SDL_DIR}" sdl EXCLUDE_FROM_ALL)
   set(IMGUI_DIR "${CMAKE_SOURCE_DIR}/.tools/imgui-1.91.9b" CACHE PATH "Dear ImGui source")
-  add_library(LfsPad SHARED src/platform.cpp src/runtime.cpp src/controllers.cpp src/insim.cpp src/rumble.cpp src/dinput8.def
+  add_library(LfsPad SHARED src/platform.cpp src/runtime.cpp src/controllers.cpp src/insim.cpp src/rumble.cpp src/dxgi.def
     ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp ${IMGUI_DIR}/imgui_widgets.cpp
     ${IMGUI_DIR}/imgui_tables.cpp ${IMGUI_DIR}/backends/imgui_impl_dx11.cpp)
   target_include_directories(LfsPad PRIVATE src ${IMGUI_DIR} ${IMGUI_DIR}/backends)
@@ -36,7 +36,7 @@ if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 4)
     target_link_libraries(controller_tests PRIVATE SDL3::SDL3-static dxguid)
     add_test(NAME controllers COMMAND controller_tests)
   endif()
-  set_target_properties(LfsPad PROPERTIES PREFIX "" OUTPUT_NAME "dinput8")
+  set_target_properties(LfsPad PROPERTIES PREFIX "" OUTPUT_NAME "dxgi")
   if(MINGW)
     target_link_libraries(LfsPad PRIVATE d3dcompiler_47)
     target_link_options(LfsPad PRIVATE -static-libgcc -static-libstdc++)

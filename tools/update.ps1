@@ -13,7 +13,7 @@ function Get-ReleaseAsset($Release, [version]$Current) {
     if ($Release.draft -ne $false -or $Release.prerelease -ne $false -or
         $Release.tag_name -cnotmatch "^v($versionPattern)$") { return }
     if ([version]$Matches[1] -le $Current) { return }
-    $name="LfsPad-$($Matches[1])-update-win32.dll"
+    $name="LfsPad-$($Matches[1])-update-dxgi-win32.dll"
     $url="https://github.com/$repo/releases/download/$($Release.tag_name)/$name"
     $assets=@($Release.assets | Where-Object { $_.name -ceq $name })
     if ($assets.Count -ne 1) { throw 'The release has no unique update DLL.' }
@@ -84,10 +84,9 @@ try {
     Assert-SafePath $status
     $manifest=Join-Path $root 'addons\LfsPad\installation.json'
     Assert-SafePath $manifest
-    Assert-SafePath (Join-Path $root 'dinput8.dll')
-    Assert-SafePath (Join-Path $root 'LfsPad.previous.dll')
+    Assert-SafePath (Join-Path $root 'dxgi.dll')
     $installation=Read-Installation $root $manifest
-    if ($installation.CurrentHash -ne $installation.Record.InstalledHash) { return }
+    if ($installation.Legacy) { return }
 
     [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
     $metadata=[IO.MemoryStream]::new()
