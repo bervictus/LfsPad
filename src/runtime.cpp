@@ -106,7 +106,7 @@ static LRESULT CALLBACK windowProc(HWND h, UINT message, WPARAM w, LPARAM l) {
     captureQuickInput.store(0);
     monitorInput.store(false);
     pedalSlot.store(-1);
-    playStationPedals.store(0);
+    nativePedals.store(0);
   }
   if (message == WM_ACTIVATEAPP && !w) {
     assignmentFocusLost.store(true);
@@ -120,7 +120,7 @@ static LRESULT CALLBACK windowProc(HWND h, UINT message, WPARAM w, LPARAM l) {
     captureQuickInput.store(0);
     monitorInput.store(false);
     pedalSlot.store(-1);
-    playStationPedals.store(0);
+    nativePedals.store(0);
   }
   return CallWindowProcA(previousWndProc, h, message, w, l);
 }
@@ -134,6 +134,8 @@ static bool initialized = false, cursorMode = false, settings = false,
 static bool adjustingSlider = false;
 static int selected = -1, keyRow = 0, keyCol = 0, settingRow = 0;
 static ControllerId activeSlot = -1;
+static bool playStationCaptions = false;
+static DWORD vibrationPreviewResult = ERROR_CANCELLED;
 static std::vector<Item> items;
 static int mainMenuInitial = -1, raceFinishItem = -1, raceResumeItem = -1;
 static int optionsInitial = -1;
@@ -188,7 +190,7 @@ static const char *buttonNames[] = {"A",  "B",     "X",    "Y",  "LB",
 static const char *buttonCaption(int index) {
   const char *playStationButtons[] = {text("Çarpı", "Cross"), text("Daire", "Circle"), text("Kare", "Square"), text("Üçgen", "Triangle"), "L1",
                                            "R1", "Options", "Select", "R3", "L3"};
-  return isPlayStationController(activeSlot) ? playStationButtons[index] : buttonNames[index];
+  return playStationCaptions ? playStationButtons[index] : buttonNames[index];
 }
 static const wchar_t *bindingKeys[] = {
     L"Confirm", L"Back", L"Secondary",        L"Keyboard",  L"PreviousTab",
@@ -223,7 +225,7 @@ static void loadConfig() {
   cfg.language = parseLanguage(language);
   cfg.slot = std::clamp(
       (int)GetPrivateProfileIntW(L"Input", L"Controller", 0, ini.c_str()) - 1,
-      -1, playStationPreference);
+      -1, nativePreference);
   cfg.deadzone = std::clamp((int)GetPrivateProfileIntW(
                                 L"Input", L"DeadzonePercent", 24, ini.c_str()),
                             10, 45) /
@@ -1064,8 +1066,8 @@ static void drawSettings(float l, float t, float w) {
                                     text("Menü kısayolları için basılı tut", "Hold for menu shortcuts"),
                                     text("İmleç modu", "Cursor mode")};
   char values[settingCount][100];
-  if (cfg.slot == playStationPreference)
-    std::snprintf(values[controllerSetting], 80, "%s", text("Kontrolcü: PlayStation / USB adaptör", "Controller: PlayStation / USB adapter"));
+  if (cfg.slot == nativePreference)
+    std::snprintf(values[controllerSetting], 80, "%s", text("Kontrolcü: Yerel gamepad / USB adaptör", "Controller: Native gamepad / USB adapter"));
   else if (cfg.slot >= 0)
     std::snprintf(values[controllerSetting], 80, text("Kontrolcü: %d", "Controller: %d"), cfg.slot + 1);
   else
@@ -1126,6 +1128,12 @@ static void drawSettings(float l, float t, float w) {
   else if (settingsSaveFailed)
     label(l + 22, t + 320, text("Ayarlar kaydedilemedi. A ile tekrar dene.", "Couldn't save settings. Press A to try again."),
           IM_COL32(255, 210, 90, 255));
+  else if (settingRow == rumbleSetting && vibrationPreviewResult != ERROR_CANCELLED) {
+    const char *message = vibrationPreviewResult == ERROR_SUCCESS
+        ? text("Sürücü titreşim komutunu kabul etti.", "The driver accepted the vibration command.")
+        : text("Bu bağlantıda titreşim komutu çalışmadı.", "Vibration failed on this connection.");
+    label(l + 22, t + 320, message);
+  }
 }
 static constexpr ImU32 meterActive = IM_COL32(78, 223, 186, 255),
                        meterMuted = IM_COL32(166, 185, 202, 255),
@@ -1182,8 +1190,8 @@ static void drawInputMeter(float x, float y, const XINPUT_GAMEPAD &gamepad,
   char slotText[48];
   std::snprintf(slotText, sizeof(slotText), "%s", text("Kontrolcü bekleniyor", "Waiting for controller"));
   if (connected) {
-    if (isPlayStationController(slot))
-      std::snprintf(slotText, sizeof(slotText), "%s", text("PlayStation / adaptör", "PlayStation / adapter"));
+    if (isNativeController(slot))
+      std::snprintf(slotText, sizeof(slotText), "%s", text("Yerel gamepad / adaptör", "Native gamepad / adapter"));
     else
       std::snprintf(slotText, sizeof(slotText), text("Kontrolcü %d", "Controller %d"), int(slot) + 1);
   }
@@ -1458,19 +1466,19 @@ void frame(IDXGISwapChain *swap) {
   // Native menus also poll keyboard state. A down/up in the same call can be
   // missed between frames, so hold generated control keys briefly.
   releaseKeys(!foreground);
-  updatePlayStationControllers(time);
+  updateNativeControllers(time);
   XINPUT_STATE state{};
   static int xinputCount = 0;
   static double checkPads = 0;
   const ControllerId oldSlot = activeSlot;
   if (inputSlot >= 0 &&
-      (inputSlot != playStationPreference || !isPlayStationController(activeSlot)))
+      (inputSlot != nativePreference || !isNativeController(activeSlot)))
     activeSlot = controllerForPreference(inputSlot, activeSlot);
   const auto controllerStatus = readController(activeSlot, state);
   bool connected = controllerStatus == ERROR_SUCCESS;
   const bool lostPad = wasConnected && oldSlot == activeSlot &&
                        controllerStatus == ERROR_DEVICE_NOT_CONNECTED;
-  if (!connected && inputSlot == playStationPreference) {
+  if (!connected && inputSlot == nativePreference) {
     activeSlot = controllerForPreference(inputSlot, activeSlot);
     connected = readController(activeSlot, state) == ERROR_SUCCESS;
   }
@@ -1485,7 +1493,7 @@ void frame(IDXGISwapChain *swap) {
           break;
         }
       if (!connected) {
-        activeSlot = controllerForPreference(playStationPreference, activeSlot);
+        activeSlot = controllerForPreference(nativePreference, activeSlot);
         connected = readController(activeSlot, state) == ERROR_SUCCESS;
       }
     }
@@ -1499,11 +1507,13 @@ void frame(IDXGISwapChain *swap) {
         ++xinputCount;
     }
   }
-  const bool singlePad = connected && xinputCount + playStationControllerCount() == 1;
-  const bool playStation = isPlayStationController(activeSlot);
-  const auto playStationVidPid = playStation ? controllerVidPid(activeSlot) : 0;
+  const int padCount = xinputCount + nativeControllerCount();
+  const bool singlePad = connected && padCount == 1;
+  const bool native = isNativeController(activeSlot);
+  playStationCaptions = native && controllerUsesPlayStationButtons(activeSlot);
+  const auto nativeVidPid = native ? controllerVidPid(activeSlot) : 0;
   if (connected != wasConnected || oldSlot != activeSlot)
-    log("%s connected=%d device=%lld", playStation ? "Native gamepad" : "XInput",
+    log("%s connected=%d device=%lld", native ? "Native gamepad" : "XInput",
         connected, static_cast<long long>(activeSlot));
   std::uint32_t stamp = 2166136261;
   for (auto &item : items) {
@@ -1614,11 +1624,11 @@ void frame(IDXGISwapChain *swap) {
     pedalsArmed = false;
   if (pedalSource && !state.Gamepad.bLeftTrigger && !state.Gamepad.bRightTrigger)
     pedalsArmed = true;
-  pedalSlot.store(pedalSource && pedalsArmed && !playStation ? int(activeSlot) : -1);
+  pedalSlot.store(pedalSource && pedalsArmed && !native ? int(activeSlot) : -1);
   const auto pedals = (std::uint64_t(state.Gamepad.bRightTrigger) << 40) |
                       (std::uint64_t(state.Gamepad.bLeftTrigger) << 32) |
-                      playStationVidPid;
-  playStationPedals.store(pedalSource && pedalsArmed && playStationVidPid ? pedals : 0);
+                      nativeVidPid;
+  nativePedals.store(pedalSource && pedalsArmed && nativeVidPid ? pedals : 0);
   const bool diagnosticAssign = (diagnostic & (1u << 16)) != 0;
   if (diagnostic)
     log("Diagnostic action mask=%03x", diagnostic);
@@ -1745,7 +1755,7 @@ void frame(IDXGISwapChain *swap) {
   const bool quickAllowed = foreground && !menu && !playingReplay && !recoveryConsumesConfirm &&
       sim.known && !replay.active && (sim.flags & 1) &&
       !(sim.flags & (8 | 16 | 256 | 32768)) && sim.mode == 0 && cfg.quickButton &&
-      (!playStation || knownPlayStationButtonLayout(playStationVidPid)) &&
+      (!native || knownPlayStationButtonLayout(nativeVidPid)) &&
       ((connected && singlePad) || cfg.diagnostics);
   const auto quickMask = quickMasks[cfg.quickButton];
   const float quickX = analog(state.Gamepad.sThumbRX, cfg.deadzone);
@@ -1892,6 +1902,7 @@ void frame(IDXGISwapChain *swap) {
           if (!back) {
             cfg.shortcuts = shortcutEditDraft;
             settingRow = 0;
+            vibrationPreviewResult = ERROR_CANCELLED;
           }
           shortcutEditor = false;
           blockMenuInput();
@@ -1933,6 +1944,7 @@ void frame(IDXGISwapChain *swap) {
           const auto slot = cfg.slot >= 0 ? controllerForPreference(cfg.slot, activeSlot) : activeSlot;
           XINPUT_STATE candidate{};
           missingSlot = readController(slot, candidate) != ERROR_SUCCESS;
+          vibrationPreviewResult = ERROR_CANCELLED;
           if (!missingSlot && cfg.rumbleStrength) {
             rumblePreviewSlot = slot;
             rumblePreviewUntil = time + .42;
@@ -2176,11 +2188,22 @@ void frame(IDXGISwapChain *swap) {
   static DrivingRumble rumble;
   static bool hadTelemetry = false;
   static bool hadWheelTelemetry = false;
-  const bool rumbleDriving = foreground && connected && (singlePad || inputSlot >= 0) &&
-      onTrack && !menu && !settings && !keyboard && !nativeText && !playingReplay &&
+  static ControllerId lastRumbleController = -1;
+  const bool canRumbleWhileDriving = foreground && onTrack && !menu && !settings && !keyboard && !nativeText && !playingReplay &&
       !recoveryConsumesConfirm && !menuPressed && !lostAssignmentFocus &&
       !(sim.flags & (2 | 4 | 8 | 16 | 256 | 32768)) &&
       sim.localPlayer && sim.localPlayer == sim.viewedPlayer && cfg.rumbleStrength;
+  ControllerId rumbleController = -1;
+  if (canRumbleWhileDriving) {
+    if (connected)
+      rumbleController = inputSlot < 0 && padCount > 1
+          ? automaticRumbleController(activeSlot, lastRumbleController, cfg.deadzone)
+          : activeSlot;
+    else if (inputSlot < 0 && padCount == 0)
+      rumbleController = soleUnmappedController();
+    lastRumbleController = rumbleController;
+  }
+  const bool rumbleDriving = rumbleController >= 0;
   const auto inSimTelemetry = pollInSimRumble(rumbleDriving);
   if (rumbleDriving) {
     const auto outSimTelemetry = drivingTelemetry();
@@ -2194,7 +2217,7 @@ void frame(IDXGISwapChain *swap) {
           telemetry.sample.engineSpeed, telemetry.sample.gear);
     hadTelemetry = fresh;
     hadWheelTelemetry = wheelTelemetry;
-    driveMotors(activeSlot, rumble.update(telemetry.sample, telemetry.received, tick,
+    driveMotors(rumbleController, rumble.update(telemetry.sample, telemetry.received, tick,
                                          cfg.rumbleStrength), window, cfg.diagnostics);
   } else {
     rumble = {};
@@ -2205,9 +2228,12 @@ void frame(IDXGISwapChain *swap) {
     XINPUT_STATE candidate{};
     if (preview && readController(rumblePreviewSlot, candidate) == ERROR_SUCCESS) {
       const bool secondPulse = rumblePreviewUntil - time <= .21;
-      driveMotors(rumblePreviewSlot, secondPulse ? motorLevels(.1f, .85f, cfg.rumbleStrength)
-                                                : motorLevels(.85f, .1f, cfg.rumbleStrength),
-                  window, cfg.diagnostics);
+      const auto result = driveMotors(rumblePreviewSlot,
+          secondPulse ? motorLevels(0, 1, cfg.rumbleStrength)
+                      : motorLevels(1, 0, cfg.rumbleStrength),
+          window, cfg.diagnostics);
+      if (result != ERROR_BUSY)
+        vibrationPreviewResult = result;
     } else {
       rumblePreviewUntil = 0;
       stopMotors();
@@ -2259,7 +2285,7 @@ void frame(IDXGISwapChain *swap) {
         std::snprintf(pageHint, sizeof(pageHint), text("   %s / %s: Sayfa", "   %s / %s: Page"),
                       bindingName(PreviousTab), bindingName(NextTab));
       const char *settingsHint = garageViewer || adjustingSlider || pedalCalibration ? "" :
-                                 playStation ? text("   L2+R2 tut: Ayarlar", "   Hold L2+R2: Settings") : text("   LT+RT tut: Ayarlar", "   Hold LT+RT: Settings");
+                                 playStationCaptions ? text("   L2+R2 tut: Ayarlar", "   Hold L2+R2: Settings") : text("   LT+RT tut: Ayarlar", "   Hold LT+RT: Settings");
       std::snprintf(hint, sizeof(hint),
                     text("LFS PAD  |  %s: Seç   %s: Geri   %s: Klavye   %s: %s%s%s%s%s", "LFS PAD  |  %s: Select   %s: Back   %s: Keyboard   %s: %s%s%s%s%s"),
                     bindingName(Confirm), bindingName(Back),

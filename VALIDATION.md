@@ -1,5 +1,12 @@
 # LfsPad test notları
 
+## LfsPad 0.1.4
+
+- Birden fazla kontrolcüyle otomatik titreşim seçimi, son kullanılan kolun hatırlanması ve bağlantı kesilmesi otomatik olarak sınandı.
+- Sanal Logitech, Nintendo, PlayStation ve üçüncü taraf gamepad’lerde titreşim komutu, durdurma ve titreşim özelliği bulunmayan cihazın yanıtı kontrol edildi.
+- Ayrı bir LFS 0.8C38 kopyasında F710 X modunda algılandı. Oyun içi testte Windows titreşim başlatma ve durdurma komutlarını kabul etti. Diğer fiziksel modeller ve F710’un D modu bu sürümde cihaz üzerinde denenmedi.
+- Çekirdek ve kontrolcü testleriyle 45 kurulum kontrolü geçti.
+
 ## LfsPad 0.1.3
 
 - `/insim 30000` satırı bulunan bir LFS dizininde 0.1.2 kurucusuyla uyumsuzluk hatası yeniden görüldü. 0.1.3 kurucusu aynı dosyayı koruyup `LfsPad.ini` dosyasına portu yazdı. Türkçe ve İngilizce kurulum ve kaldırma denemeleri geçti.

@@ -6,7 +6,7 @@ Use a controller to start a race, change your setup in the garage and get back o
 
 ## Install or update
 
-1. Close LFS and [download the Windows installer](https://github.com/bervictus/LfsPad/releases/download/v0.1.3/LfsPad-0.1.3-setup.exe).
+1. Close LFS and [download the Windows installer](https://github.com/bervictus/LfsPad/releases/download/v0.1.4/LfsPad-0.1.4-setup.exe).
 2. Choose **English** or **Türkçe** at the top right. Select the folder containing `LFS.exe`.
 3. Click **Install**, or **Update** if LfsPad is already installed. Then launch LFS as usual.
 
@@ -23,6 +23,7 @@ Hold both triggers in a menu to open LfsPad settings. The second row changes the
 | Controller | Connection |
 |---|---|
 | Xbox and other XInput controllers | For a Logitech F710, set the rear switch to **X**. |
+| Other gamepads recognized by SDL | Connection and vibration depend on the model and Windows driver. |
 | DualShock 4, DualSense and DualSense Edge | USB or Bluetooth. Use USB for vibration with a compatible driver. |
 | Sixaxis and DualShock 3 | Requires a compatible Windows driver. |
 | PS1 and PS2 controllers | Requires a USB adapter with a supported button and axis mapping. |

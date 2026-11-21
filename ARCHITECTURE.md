@@ -52,9 +52,9 @@ Beş menünün kataloğu kararlı hedef kimliklerini, gösterim adlarını ve 0.
 
 ## Giriş ve durum
 
-XInput Windows sistem DLL'inden okunur. PlayStation ve eşlenmiş USB adaptörleri, LfsPad DLL’ine statik bağlanan SDL’nin gamepad arayüzünden alınır. SDL girdisi, menülerin kullandığı standart tuş ve eksen biçimine çevrilir. Otomatik seçim bağlı kontrolcüyü korur ve ilk seçimde XInput’a öncelik verir. Ekran, odak veya bağlantı değişiminde basılı tuşların ve sol analoğun nötre dönmesi beklenir. Tekrar gecikmesi 350 ms, tekrar aralığı 95 ms’dir.
+XInput Windows sistem DLL'inden okunur. XInput dışında tanınan gamepad’ler, LfsPad DLL’ine statik bağlanan SDL’nin gamepad arayüzünden alınır. SDL girdisi, menülerin kullandığı standart tuş ve eksen biçimine çevrilir. Otomatik seçim bağlı kontrolcüyü korur ve ilk seçimde XInput’a öncelik verir. Ekran, odak veya bağlantı değişiminde basılı tuşların ve sol analoğun nötre dönmesi beklenir. Tekrar gecikmesi 350 ms, tekrar aralığı 95 ms’dir.
 
-Sürüş LFS’nin kendi DirectInput aygıtı üzerinden devam eder. Benzersiz PlayStation VID/PID eşleşmesi varsa SDL’nin tetik değerleri LFS’nin ayrı kaydırıcılarına iletilir. Bluetooth’un gelişmiş rapor modu, yerel DirectInput okumalarının devam etmesi için kapalı tutulur. [SDL’nin rapor modları](https://wiki.libsdl.org/SDL3/SDL_HINT_JOYSTICK_ENHANCED_REPORTS)
+Sürüş LFS’nin kendi DirectInput aygıtı üzerinden devam eder. Benzersiz yerel gamepad VID/PID eşleşmesi varsa SDL’nin tetik değerleri LFS’nin ayrı kaydırıcılarına iletilir. Bluetooth’un gelişmiş rapor modu, yerel DirectInput okumalarının devam etmesi için kapalı tutulur. [SDL’nin rapor modları](https://wiki.libsdl.org/SDL3/SDL_HINT_JOYSTICK_ENHANCED_REPORTS)
 
 Doğrudan tuş ataması, atanabilen tüm tuşlar bırakılınca tek bir yeni tuş basışını kabul eder. Aynı örnekte birden çok tuş varsa atama, tuşlar bırakılana kadar bekler. Atama sırasında normal ayar ve menü komutları bekler. Odak kaybı, cihaz kaybı veya yuva değişimi bekleyen atamayı iptal eder. Dolu atamalar mevcut eşleme değiştirme yordamını kullanır. Eşlemeler A onayında INI'ye yazılır.
 
@@ -81,7 +81,7 @@ Türkçe Q klavye Unicode giriş üretir. Metin/parola içeriği kopyalanmaz, ç
 `core.hpp`: gezinme, sekme/kaydırıcı seçimi, tekrar, ölü bölge, geçiş engeli, eşleme.
 `runtime.cpp` oyun menülerini okur, seçim çerçevesini, klavyeyi ve ayarlar panelini çizer.
 
-`controllers.cpp` XInput ve PlayStation kollarını okur.
+`controllers.cpp` XInput ve SDL gamepad’lerini okur ve titreşim komutlarını gönderir.
 `platform.cpp`: yükleme zinciri, hash doğrulama, DirectInput/DXGI kancaları.
 `insim.cpp`: süreç içi yerel durum bağlantısı.
 `tools/install.ps1`, `uninstall.ps1`: doğrulanmış yedek ve geri yükleme.

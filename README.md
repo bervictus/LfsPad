@@ -6,7 +6,7 @@ LfsPad ile Live for Speed’de tek oyunculu bir yarış açabilir, garajda araba
 
 ## Kurulum ve kaldırma
 
-1. LFS’yi kapat ve [Windows kurulum dosyasını indir](https://github.com/bervictus/LfsPad/releases/download/v0.1.3/LfsPad-0.1.3-setup.exe).
+1. LFS’yi kapat ve [Windows kurulum dosyasını indir](https://github.com/bervictus/LfsPad/releases/download/v0.1.4/LfsPad-0.1.4-setup.exe).
 2. Kurulumda `LFS.exe` dosyasının bulunduğu klasörü seç.
 3. **Kur**’a bas ve oyunu aç. LfsPad zaten kuruluysa **Güncelle**’ye bas. Tuş atamaların ve diğer ayarların korunur.
 
@@ -21,6 +21,7 @@ Mod **Windows için Live for Speed 0.8C38’in 32 bit sürümüne** göre hazır
 | Kontrolcü | Bağlantı |
 |---|---|
 | Xbox ve Windows’un XInput olarak tanıdığı diğer kollar | Logitech F710 kullanıyorsan arkadaki anahtarı **X** konumuna al. |
+| SDL’nin tanıdığı diğer gamepad’ler | USB veya Bluetooth desteği modele bağlı. Titreşim için Windows sürücüsünün motorları desteklemesi gerekiyor. |
 | DualShock 4, DualSense ve DualSense Edge | USB veya Bluetooth ile bağla. Titreşim için USB kullan. Titreşim desteği sürücüye de bağlı. |
 | Sixaxis ve DualShock 3 | Windows’un kolu okuyabilmesi için uyumlu bir sürücü gerekiyor. |
 | PS1 ve PS2 kolları | Tuşları ve analogları Windows’a tanıtan uyumlu bir USB adaptörü gerekiyor. |

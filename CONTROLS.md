@@ -48,7 +48,7 @@ If the active controller disconnects during a solo race, reconnect and confirm t
 
 ## Vibration and input display
 
-In **Driving vibration**, adjust strength with left/right, test with X and save with A. The default is 50%. Set it to 0% to turn it off. On the F710, enable vibration on the controller itself. For PlayStation, use USB and a driver with vibration support. Engine speed, gear shifts, sliding and impacts drive the vibration. OutSim adds wheel and suspension detail when available.
+In **Driving vibration**, adjust strength with left/right, test with X and save with A. The default is 50%. Set it to 0% to turn it off. On the F710, enable vibration on the controller itself. The test shows whether the driver accepted the vibration command. With several gamepads in **Auto**, vibration follows the one sending steering or pedal input. Choose a fixed source on the **Controller** row if needed. XInput and SDL gamepad vibration are supported. A single unmapped DirectInput gamepad can receive driving vibration when its driver supports force feedback. For PlayStation, use USB for vibration. Engine speed, gear shifts, sliding and impacts drive the vibration. OutSim adds wheel and suspension detail when available.
 
 Enable **Live input display** to compare what the controller sends with what LFS receives. An amber outline marks a filtered button. If LFS doesn't show separate pedals, follow the axis setup in the [installation guide](README.en.md#separate-throttle-and-brake).
 

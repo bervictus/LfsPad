@@ -15,7 +15,7 @@ extern std::atomic<bool> captureRaceAxes;
 extern std::atomic<unsigned> captureQuickInput;
 extern std::atomic<bool> monitorInput;
 extern std::atomic<int> pedalSlot;
-extern std::atomic<std::uint64_t> playStationPedals;
+extern std::atomic<std::uint64_t> nativePedals;
 extern std::atomic<bool> stopping;
 std::wstring path(const wchar_t *name);
 inline HMODULE loadSystemLibrary(const wchar_t *name) {
@@ -34,7 +34,7 @@ void releaseTarget();
 void observeOutSim(const char *data, int size);
 DrivingTelemetry drivingTelemetry();
 DrivingTelemetry pollInSimRumble(bool enabled);
-void driveMotors(ControllerId slot, MotorLevels levels, HWND window, bool diagnostic);
+DWORD driveMotors(ControllerId slot, MotorLevels levels, HWND window, bool diagnostic);
 void stopMotors();
 struct DrivingInputSample {
   ULONGLONG tick = 0;

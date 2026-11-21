@@ -9,12 +9,15 @@
 #include <vector>
 
 namespace pad {
-struct PlayStationDevice {
+struct NativeController {
   SDL_Gamepad *gamepad;
+  SDL_Joystick *joystick;
   std::uint32_t vidpid;
+  SDL_GamepadType type;
+  SDL_Haptic *haptic = nullptr;
 };
 static std::mutex controllerMutex, nativeDevicesMutex;
-static std::map<SDL_JoystickID, PlayStationDevice> playStations;
+static std::map<SDL_JoystickID, NativeController> controllers;
 static std::vector<std::uint32_t> nativeDevices;
 
 static HMODULE xinputModule() {
@@ -40,28 +43,26 @@ static SDL_JoystickID joystickId(ControllerId controller) {
 }
 
 static std::uint32_t vidPid(SDL_JoystickID id) {
-  return std::uint32_t(SDL_GetGamepadVendorForID(id)) |
-         (std::uint32_t(SDL_GetGamepadProductForID(id)) << 16);
+  return std::uint32_t(SDL_GetJoystickVendorForID(id)) |
+         (std::uint32_t(SDL_GetJoystickProductForID(id)) << 16);
 }
 
-static bool isPlayStationOrAdapter(SDL_JoystickID id) {
+static bool useNativeBackend(SDL_JoystickID id, bool xinputConnected) {
+  const auto product = vidPid(id);
+  const auto *path = SDL_GetJoystickPathForID(id);
   const auto type = SDL_GetRealGamepadTypeForID(id);
-  if (type == SDL_GAMEPAD_TYPE_PS3 || type == SDL_GAMEPAD_TYPE_PS4 ||
-      type == SDL_GAMEPAD_TYPE_PS5)
-    return true;
-  if (type != SDL_GAMEPAD_TYPE_STANDARD && type != SDL_GAMEPAD_TYPE_UNKNOWN)
+  // Avoid representing a single XUSB device twice. A SDL mapping that
+  // merely uses Xbox-style button names does not make it an XUSB device.
+  if (product == 0xc21f046d ||
+      (path && (std::strstr(path, "IG_") || std::strstr(path, "ig_"))))
     return false;
-  const auto mappedType = SDL_GetGamepadTypeForID(id);
-  if (mappedType == SDL_GAMEPAD_TYPE_XBOX360 || mappedType == SDL_GAMEPAD_TYPE_XBOXONE)
+  if (xinputConnected && (type == SDL_GAMEPAD_TYPE_XBOX360 ||
+                          type == SDL_GAMEPAD_TYPE_XBOXONE))
     return false;
-  // Mapped USB adapters often have no manufacturer-specific type. XUSB
-  // interfaces and Xbox emulators are already polled through XInput.
-  const char *path = SDL_GetGamepadPathForID(id);
-  return vidPid(id) != 0xc21f046d &&
-         (!path || (!std::strstr(path, "IG_") && !std::strstr(path, "ig_")));
+  return SDL_IsGamepad(id) || SDL_GetJoystickTypeForID(id) == SDL_JOYSTICK_TYPE_GAMEPAD;
 }
 
-void updatePlayStationControllers(double time) {
+void updateNativeControllers(double time) {
   std::lock_guard<std::mutex> lock(controllerMutex);
   static const bool ready = [] {
     // SDL's HID backend looks these up by basename. Load the system copies
@@ -90,7 +91,7 @@ void updatePlayStationControllers(double time) {
       SDL_SetGamepadEventsEnabled(false);
       SDL_SetJoystickEventsEnabled(false);
     } else {
-      log("PlayStation gamepad initialization failed: %s", SDL_GetError());
+      log("Native gamepad initialization failed: %s", SDL_GetError());
     }
     return ok;
   }();
@@ -103,60 +104,100 @@ void updatePlayStationControllers(double time) {
     return;
   nextScan = time + .5;
 
-  for (auto it = playStations.begin(); it != playStations.end();) {
-    if (!SDL_GamepadConnected(it->second.gamepad)) {
-      SDL_CloseGamepad(it->second.gamepad);
-      it = playStations.erase(it);
-    } else {
+  for (auto it = controllers.begin(); it != controllers.end();) {
+    const auto &device = it->second;
+    if (SDL_JoystickConnected(device.joystick)) {
       ++it;
+      continue;
     }
+    if (device.haptic)
+      SDL_CloseHaptic(device.haptic);
+    if (device.gamepad)
+      SDL_CloseGamepad(device.gamepad);
+    else
+      SDL_CloseJoystick(device.joystick);
+    it = controllers.erase(it);
   }
+
+  XINPUT_STATE state{};
+  bool xinputConnected = false;
+  for (int slot = 0; slot < 4 && !xinputConnected; ++slot)
+    xinputConnected = readXInputController(slot, state) == ERROR_SUCCESS;
   int count = 0;
-  SDL_JoystickID *ids = SDL_GetGamepads(&count);
+  SDL_JoystickID *ids = SDL_GetJoysticks(&count);
   for (int i = 0; ids && i < count; ++i) {
     const auto id = ids[i];
-    if (playStations.count(id) || !isPlayStationOrAdapter(id))
+    if (controllers.count(id) || !useNativeBackend(id, xinputConnected))
       continue;
-    if (auto *gamepad = SDL_OpenGamepad(id)) {
-      const auto product = vidPid(id);
-      playStations.emplace(id, PlayStationDevice{gamepad, product});
-      log("Native gamepad opened: VID=%04x PID=%04x", product & 0xffff, product >> 16);
-    }
+    SDL_Gamepad *gamepad = SDL_IsGamepad(id) ? SDL_OpenGamepad(id) : nullptr;
+    SDL_Joystick *joystick = gamepad ? SDL_GetGamepadJoystick(gamepad)
+                                    : SDL_OpenJoystick(id);
+    if (!joystick)
+      continue;
+    const auto product = vidPid(id);
+    controllers.emplace(id, NativeController{gamepad, joystick, product,
+                         SDL_GetRealGamepadTypeForID(id)});
+    log("Native gamepad: VID=%04x PID=%04x mapped=%d", product & 0xffff,
+        product >> 16, gamepad != nullptr);
   }
   SDL_free(ids);
 
   std::lock_guard<std::mutex> nativeLock(nativeDevicesMutex);
   nativeDevices.clear();
-  for (const auto &entry : playStations)
-    nativeDevices.push_back(entry.second.vidpid);
+  for (const auto &entry : controllers)
+    if (entry.second.gamepad)
+      nativeDevices.push_back(entry.second.vidpid);
 }
 
-int playStationControllerCount() {
+int nativeControllerCount() {
   std::lock_guard<std::mutex> lock(controllerMutex);
-  return int(playStations.size());
+  return int(std::count_if(controllers.begin(), controllers.end(),
+                          [](const auto &entry) { return entry.second.gamepad != nullptr; }));
+}
+
+ControllerId soleUnmappedController() {
+  std::lock_guard<std::mutex> lock(controllerMutex);
+  if (controllers.size() != 1 || controllers.begin()->second.gamepad ||
+      !SDL_JoystickConnected(controllers.begin()->second.joystick))
+    return -1;
+  return ControllerId(controllers.begin()->first) + 4;
+}
+
+bool controllerUsesPlayStationButtons(ControllerId controller) {
+  if (!isNativeController(controller))
+    return false;
+  std::lock_guard<std::mutex> lock(controllerMutex);
+  const auto found = controllers.find(joystickId(controller));
+  if (found == controllers.end())
+    return false;
+  const auto type = found->second.type;
+  return type == SDL_GAMEPAD_TYPE_PS3 || type == SDL_GAMEPAD_TYPE_PS4 ||
+         type == SDL_GAMEPAD_TYPE_PS5;
 }
 
 ControllerId controllerForPreference(int preference, ControllerId previous) {
-  if (preference != playStationPreference)
+  if (preference != nativePreference)
     return preference;
   std::lock_guard<std::mutex> lock(controllerMutex);
-  const auto found = isPlayStationController(previous)
-                         ? playStations.find(joystickId(previous)) : playStations.end();
-  if (found != playStations.end() && SDL_GamepadConnected(found->second.gamepad))
+  const auto found = isNativeController(previous)
+                         ? controllers.find(joystickId(previous)) : controllers.end();
+  if (found != controllers.end() && found->second.gamepad &&
+      SDL_GamepadConnected(found->second.gamepad))
     return previous;
-  for (const auto &entry : playStations)
-    if (SDL_GamepadConnected(entry.second.gamepad))
+  for (const auto &entry : controllers)
+    if (entry.second.gamepad && SDL_GamepadConnected(entry.second.gamepad))
       return ControllerId(entry.first) + 4;
   return -1;
 }
 
 DWORD readController(ControllerId controller, XINPUT_STATE &state) {
-  if (!isPlayStationController(controller))
+  if (!isNativeController(controller))
     return readXInputController(int(controller), state);
   state = {};
   std::lock_guard<std::mutex> lock(controllerMutex);
-  const auto found = playStations.find(joystickId(controller));
-  if (found == playStations.end() || !SDL_GamepadConnected(found->second.gamepad))
+  const auto found = controllers.find(joystickId(controller));
+  if (found == controllers.end() || !found->second.gamepad ||
+      !SDL_GamepadConnected(found->second.gamepad))
     return ERROR_DEVICE_NOT_CONNECTED;
   auto *gamepad = found->second.gamepad;
   const auto get = [=](SDL_GamepadAxis axis) { return SDL_GetGamepadAxis(gamepad, axis); };
@@ -189,18 +230,67 @@ DWORD readController(ControllerId controller, XINPUT_STATE &state) {
   return ERROR_SUCCESS;
 }
 
+ControllerId automaticRumbleController(ControllerId fallback,
+                                       ControllerId previous, float deadzone) {
+  const int threshold = int(deadzone * 32767);
+  RumbleControllerChoice choice{previous};
+  XINPUT_STATE state{};
+  for (int i = 0; i < 4; ++i)
+    if (readXInputController(i, state) == ERROR_SUCCESS)
+      choice.observe(i, drivingInputActive(state.Gamepad.sThumbLX, threshold,
+                                            state.Gamepad.bLeftTrigger, state.Gamepad.bRightTrigger));
+
+  std::lock_guard<std::mutex> lock(controllerMutex);
+  for (const auto &entry : controllers) {
+    auto *gamepad = entry.second.gamepad;
+    if (!gamepad || !SDL_GamepadConnected(gamepad))
+      continue;
+    choice.observe(ControllerId(entry.first) + 4, drivingInputActive(
+        SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFTX), threshold,
+        controllerTrigger(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER)),
+        controllerTrigger(SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER))));
+  }
+  return choice.select(fallback);
+}
+
+static bool rumbleNative(NativeController &device, std::uint16_t left, std::uint16_t right) {
+  if (device.gamepad)
+    return SDL_RumbleGamepad(device.gamepad, left, right, rumbleTimeout);
+  if (!device.haptic) {
+    if (SDL_RumbleJoystick(device.joystick, left, right, rumbleTimeout))
+      return true;
+    if (!left && !right)
+      return false;
+    // SDL's force feedback API applies to raw joysticks. The handle is
+    // opened from the selected joystick, never from a system-wide index.
+    if (!SDL_WasInit(SDL_INIT_HAPTIC) && !SDL_InitSubSystem(SDL_INIT_HAPTIC))
+      return false;
+    auto *haptic = SDL_OpenHapticFromJoystick(device.joystick);
+    if (!haptic)
+      return false;
+    if (!SDL_InitHapticRumble(haptic)) {
+      SDL_CloseHaptic(haptic);
+      return false;
+    }
+    device.haptic = haptic;
+  }
+  if (!left && !right)
+    return SDL_StopHapticRumble(device.haptic);
+  return SDL_PlayHapticRumble(device.haptic, std::max(left, right) / 65535.f,
+                              rumbleTimeout);
+}
+
 DWORD setControllerVibration(ControllerId controller, std::uint16_t left,
                              std::uint16_t right) {
-  if (isPlayStationController(controller)) {
+  if (isNativeController(controller)) {
     // The watchdog can run while the render thread is inside a device update.
     std::unique_lock<std::mutex> lock(controllerMutex, std::try_to_lock);
     if (!lock.owns_lock())
       return ERROR_BUSY;
-    const auto found = playStations.find(joystickId(controller));
-    if (found == playStations.end())
+    const auto found = controllers.find(joystickId(controller));
+    if (found == controllers.end() || !SDL_JoystickConnected(found->second.joystick))
       return ERROR_DEVICE_NOT_CONNECTED;
-    return SDL_RumbleGamepad(found->second.gamepad, left, right, 160)
-               ? ERROR_SUCCESS : ERROR_NOT_SUPPORTED;
+    return rumbleNative(found->second, left, right) ? ERROR_SUCCESS : ERROR_NOT_SUPPORTED;
   }
   static const auto set = reinterpret_cast<decltype(&XInputSetState)>(
       GetProcAddress(xinputModule(), "XInputSetState"));
@@ -209,14 +299,14 @@ DWORD setControllerVibration(ControllerId controller, std::uint16_t left,
 }
 
 std::uint32_t controllerVidPid(ControllerId controller) {
-  if (!isPlayStationController(controller))
+  if (!isNativeController(controller))
     return 0;
   std::lock_guard<std::mutex> lock(controllerMutex);
-  auto found = playStations.find(joystickId(controller));
-  return found != playStations.end() ? found->second.vidpid : 0;
+  auto found = controllers.find(joystickId(controller));
+  return found != controllers.end() ? found->second.vidpid : 0;
 }
 
-bool isMappedPlayStationDevice(std::uint32_t vidpid) {
+bool isMappedNativeDevice(std::uint32_t vidpid) {
   if (!vidpid)
     return false;
   if (knownPlayStationButtonLayout(vidpid) || vidpid == 0x0268054c)

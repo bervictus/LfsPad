@@ -10,6 +10,29 @@ inline std::int16_t controllerY(std::int16_t value) {
 inline std::uint8_t controllerTrigger(std::int16_t value) {
   return value <= 0 ? 0 : std::uint8_t((int(value) * 255 + 16383) / 32767);
 }
+inline bool drivingInputActive(int steering, int deadzone, int brake, int throttle) {
+  return steering < -deadzone || steering > deadzone || brake > 30 || throttle > 30;
+}
+
+struct RumbleControllerChoice {
+  std::int64_t previous;
+  std::int64_t active = -1;
+  unsigned count = 0;
+  bool previousPresent = false;
+
+  void observe(std::int64_t id, bool driving) {
+    previousPresent |= id == previous;
+    if (!driving)
+      return;
+    active = id;
+    ++count;
+  }
+
+  std::int64_t select(std::int64_t fallback) const {
+    return count == 1 ? active : previousPresent ? previous : fallback;
+  }
+};
+
 inline bool knownPlayStationButtonLayout(std::uint32_t vidpid) {
   if ((vidpid & 0xffff) != 0x054c)
     return false;

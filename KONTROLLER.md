@@ -66,7 +66,9 @@ Dokuz menü görevine A, B, X, Y, LB, RB, Start, Back, R3 veya L3 atayabilirsin.
 
 ## Titreşim
 
-LfsPad ayarlarında ilk satırdayken D-pad’de yukarı basarak **Sürüş titreşimi**’ne geç. Sol/sağ ile şiddeti ayarla, X ile dene, A ile kaydet. İlk kurulumda şiddet %50’dir. Kapatmak için %0’ı seç. F710’da kolun üzerindeki titreşim düğmesini de aç. PlayStation kolunda titreşimi USB ile dene. Bluetooth bağlantısında LFS’nin sürüş eksenlerini okuyabilmesi için standart giriş modu kullanılır.
+LfsPad ayarlarında ilk satırdayken D-pad’de yukarı basarak **Sürüş titreşimi**’ne geç. Sol/sağ ile şiddeti ayarla, X ile dene, A ile kaydet. İlk kurulumda şiddet %50’dir. Kapatmak için %0’ı seç. F710’da kolun üzerindeki titreşim düğmesini de aç. X ile yaptığın testten sonra sürücünün titreşim komutunu kabul edip etmediğini ekranda görebilirsin.
+
+Birden fazla kol bağlıysa **Otomatik** mod sürüş girdisi veren kolu izler. Tuşları bırakınca titreşim son kullanılan kolda kalır. **Kontrolcü** satırından sabit bir kaynak da seçebilirsin. XInput ve SDL gamepad titreşimi desteklenir. Tuş eşlemesi bulunmayan tek bir DirectInput gamepad’i, sürücüsü izin veriyorsa sürüş titreşimini alabilir. PlayStation kollarında titreşim için USB kullan. Bluetooth bağlantısı LFS’nin okuyabildiği giriş modunda çalışır.
 
 Titreşim motor devrine, vites değişimlerine, kaymaya ve darbelere tepki verir. Kokpit ve özel kamerada OutSim, tekerlek ve süspansiyon verisini de sağlar. Takip kamerasında veya OutSim verisi kesildiğinde mod InSim’den gelen sürüş verisini kullanır. Oyunu duraklattığında, tekrar izlerken, başka araca geçtiğinde, Alt+Tab yaptığında veya kolun bağlantısı kesildiğinde titreşim durur.
 

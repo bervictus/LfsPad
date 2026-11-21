@@ -20,7 +20,7 @@ std::atomic<bool> captureRaceAxes{false};
 std::atomic<unsigned> captureQuickInput{0};
 std::atomic<bool> monitorInput{false};
 std::atomic<int> pedalSlot{-1};
-std::atomic<std::uint64_t> playStationPedals{0};
+std::atomic<std::uint64_t> nativePedals{0};
 std::atomic<bool> stopping{false};
 std::wstring path(const wchar_t *name) {
   wchar_t p[32768];
@@ -214,7 +214,7 @@ static constexpr DWORD pedalObject = DIDFT_ABSAXIS | DIDFT_MAKEINSTANCE(0x7ffe);
 static constexpr LONG pedalMinimum = 0, pedalMaximum = 65535;
 
 static bool supportedGamepad(const GamepadFormat &format) {
-  return format.xinput || isMappedPlayStationDevice(format.vidpid);
+  return format.xinput || isMappedNativeDevice(format.vidpid);
 }
 
 static bool hasPedalOffsets(const DIDATAFORMAT &format) {
@@ -485,7 +485,7 @@ static void writePedals(const GamepadFormat &format, void *data, bool suppressed
         left = state.Gamepad.bLeftTrigger;
       }
     } else if (uniqueDevice) {
-      const auto pedals = playStationPedals.load();
+      const auto pedals = nativePedals.load();
       if (pedals && std::uint32_t(pedals) == format.vidpid) {
         right = std::uint8_t(pedals >> 40);
         left = std::uint8_t(pedals >> 32);
@@ -944,7 +944,7 @@ BOOL WINAPI DllMain(HINSTANCE h, DWORD reason, void *) {
     pad::captureQuickInput.store(0);
     pad::monitorInput.store(false);
     pad::pedalSlot.store(-1);
-    pad::playStationPedals.store(0);
+    pad::nativePedals.store(0);
   }
   return TRUE;
 }

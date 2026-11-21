@@ -30,16 +30,20 @@ static MotorLevels motorLevelsSent;
 static ULONGLONG lastCommand = 0, lastWrite = 0;
 static ControllerId declinedSlot = -1;
 static ULONGLONG declinedAt = 0;
+static DWORD declinedError = ERROR_NOT_SUPPORTED;
 static bool diagnosticLease = false;
 
-static void clearMotors() {
+static DWORD clearMotors() {
   if (motorSlot < 0)
-    return;
+    return ERROR_SUCCESS;
   const DWORD result = setControllerVibration(motorSlot, 0, 0);
+  if (result == ERROR_BUSY)
+    return result; // Retry on the next frame or watchdog callback.
   if (diagnosticLease)
     log("Rumble stop: device=%lld status=%lu", static_cast<long long>(motorSlot), result);
   motorSlot = -1;
   motorLevelsSent = {};
+  return result;
 }
 
 static VOID CALLBACK watchdog(PVOID, BOOLEAN) {
@@ -55,10 +59,10 @@ void stopMotors() {
   ReleaseSRWLockExclusive(&motorsLock);
 }
 
-void driveMotors(ControllerId slot, MotorLevels levels, HWND window, bool diagnostic) {
+DWORD driveMotors(ControllerId slot, MotorLevels levels, HWND window, bool diagnostic) {
   if (slot < 0 || (!levels.left && !levels.right)) {
     stopMotors();
-    return;
+    return ERROR_SUCCESS;
   }
   // The module is loaded for the life of the game. A Windows timer queue
   // clears any active command even if Present stops delivering frames.
@@ -68,23 +72,27 @@ void driveMotors(ControllerId slot, MotorLevels levels, HWND window, bool diagno
                                  40, 40, WT_EXECUTEDEFAULT);
   }();
   if (!ready)
-    return;
+    return ERROR_NOT_READY;
   AcquireSRWLockExclusive(&motorsLock);
   if (stopping.load() || GetForegroundWindow() != window) {
     clearMotors();
     ReleaseSRWLockExclusive(&motorsLock);
-    return;
+    return ERROR_CANCELLED;
   }
   const auto now = GetTickCount64();
-  if (slot == declinedSlot && now - declinedAt < 1000) {
+  if (motorSlot != slot && clearMotors() == ERROR_BUSY) {
     ReleaseSRWLockExclusive(&motorsLock);
-    return;
+    return ERROR_BUSY;
   }
-  if (motorSlot != slot)
-    clearMotors();
+  if (slot == declinedSlot && now - declinedAt < 1000) {
+    const auto error = declinedError;
+    ReleaseSRWLockExclusive(&motorsLock);
+    return error;
+  }
   lastCommand = now;
+  DWORD result = ERROR_SUCCESS;
   if (rumbleWriteDue(motorSlot >= 0, motorLevelsSent, levels, now - lastWrite)) {
-    const DWORD result = setControllerVibration(slot, levels.left, levels.right);
+    result = setControllerVibration(slot, levels.left, levels.right);
     if (diagnostic && motorSlot != slot)
       log("Rumble start: device=%lld left=%u right=%u status=%lu", static_cast<long long>(slot),
           levels.left, levels.right, result);
@@ -94,12 +102,14 @@ void driveMotors(ControllerId slot, MotorLevels levels, HWND window, bool diagno
       diagnosticLease = diagnostic;
       motorLevelsSent = levels;
       lastWrite = now;
-    } else {
+    } else if (result != ERROR_BUSY) {
       declinedSlot = slot;
       declinedAt = now;
+      declinedError = result;
       clearMotors();
     }
   }
   ReleaseSRWLockExclusive(&motorsLock);
+  return result;
 }
 } // namespace pad
