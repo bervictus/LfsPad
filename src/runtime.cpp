@@ -154,6 +154,7 @@ static int shortcutEditMenu = 0, shortcutEditRow = 0;
 static ShortcutMappings shortcutEditDraft, savedShortcuts;
 static ShortcutDirections directionsBeforeEdit;
 struct Config {
+  Language language = Language::Turkish;
   int slot = -1;
   float deadzone = .24f, cursorSpeed = 900.f;
   std::array<int, 9> bindings{0, 1, 2, 3, 4, 5, 6, 7, 8};
@@ -163,6 +164,9 @@ struct Config {
   int rumbleStrength = 50;
   ShortcutMappings shortcuts;
 } cfg;
+static const char *text(const char *turkish, const char *english) {
+  return LocalizedText{turkish, english}.get(cfg.language);
+}
 enum Action {
   Confirm,
   Back,
@@ -181,35 +185,28 @@ static constexpr std::array<std::uint16_t, 10> physical = {
     XINPUT_GAMEPAD_LEFT_THUMB};
 static const char *buttonNames[] = {"A",  "B",     "X",    "Y",  "LB",
                                     "RB", "Start", "Back", "R3", "L3"};
-static const char *playStationButtons[] = {"Çarpı", "Daire", "Kare", "Üçgen", "L1",
-                                           "R1", "Options", "Select", "R3", "L3"};
 static const char *buttonCaption(int index) {
+  const char *playStationButtons[] = {text("Çarpı", "Cross"), text("Daire", "Circle"), text("Kare", "Square"), text("Üçgen", "Triangle"), "L1",
+                                           "R1", "Options", "Select", "R3", "L3"};
   return isPlayStationController(activeSlot) ? playStationButtons[index] : buttonNames[index];
 }
 static const wchar_t *bindingKeys[] = {
     L"Confirm", L"Back", L"Secondary",        L"Keyboard",  L"PreviousTab",
     L"NextTab", L"Menu", L"SettingsModifier", L"CursorMode"};
-static const char *actionNames[] = {"Onay",
-                                    "Geri",
-                                    "Sağ tıklama / sil",
-                                    "Klavye / büyük harf",
-                                    "Önceki sekme",
-                                    "Sonraki sekme",
-                                    "Menü / metni onayla",
-                                    "Menü kısayolları için basılı tut",
-                                    "İmleç modu"};
 static std::uint16_t binding(Action a) { return physical[cfg.bindings[a]]; }
 static const char *bindingName(Action a) {
   return buttonCaption(cfg.bindings[a]);
 }
-static constexpr int firstBindingSetting = 3, quickMenuSetting = 12,
-                     monitorSetting = 13, shortcutSetting = 14,
-                     rumbleSetting = 15, settingCount = 16;
+enum SettingRow {
+  controllerSetting, languageSetting, deadzoneSetting, cursorSpeedSetting,
+  firstBindingSetting, quickMenuSetting = firstBindingSetting + 9,
+  monitorSetting, shortcutSetting, rumbleSetting, settingCount
+};
 static bool isBindingSetting() {
   return settingRow >= firstBindingSetting && settingRow < quickMenuSetting;
 }
-static const char *quickButtons[] = {"Kapalı", "Back", "L3", "R3"};
 static const char *quickButtonCaption() {
+  const char *quickButtons[] = {text("Kapalı", "Off"), "Back", "L3", "R3"};
   return cfg.quickButton == 1 ? buttonCaption(7) : quickButtons[cfg.quickButton];
 }
 static const std::uint16_t quickMasks[] = {
@@ -220,6 +217,10 @@ static void loadConfig() {
   missingSlot = false;
   shortcutEditor = settingsSaveFailed = false;
   ini = path(L"LfsPad.ini");
+  wchar_t language[16]{};
+  GetPrivateProfileStringW(L"General", L"Language", L"tr", language,
+                           _countof(language), ini.c_str());
+  cfg.language = parseLanguage(language);
   cfg.slot = std::clamp(
       (int)GetPrivateProfileIntW(L"Input", L"Controller", 0, ini.c_str()) - 1,
       -1, playStationPreference);
@@ -285,7 +286,8 @@ static bool saveConfig() {
   put(L"RumbleStrength", cfg.rumbleStrength);
   for (int i = 0; i < 9; ++i)
     put(bindingKeys[i], cfg.bindings[i]);
-  return inputSaved;
+  return inputSaved && WritePrivateProfileStringW(
+      L"General", L"Language", languageKey(cfg.language), ini.c_str());
 }
 static bool validMenuRect(const Rect &r) {
   return std::isfinite(r.l) && std::isfinite(r.t) && std::isfinite(r.r) &&
@@ -876,7 +878,7 @@ static void drawMenuShortcuts(float width, float height, const ResolvedShortcuts
   const float w = std::min(430.f, width - 24);
   const float x = (width - w) * .5f, y = height * .14f;
   panel(x, y, x + w, y + 136);
-  label(x + 14, y + 10, "MENÜ KISAYOLLARI");
+  label(x + 14, y + 10, text("MENÜ KISAYOLLARI", "MENU SHORTCUTS"));
   const float cell = (w - 36) * .5f;
   const char *arrows[] = {"↑", "↓", "←", "→"};
   auto *draw = ImGui::GetForegroundDrawList();
@@ -890,23 +892,15 @@ static void drawMenuShortcuts(float width, float height, const ResolvedShortcuts
     draw->AddRectFilled({left, top}, {left + cell, top + 25},
                         active ? IM_COL32(35, 110, 94, 255)
                                : IM_COL32(33, 47, 62, 255), 4);
-    char text[94];
-    std::snprintf(text, sizeof(text), "%s  %s", arrows[i], shortcuts[i].label);
-    label(left + 8, top + 3, text,
+    char hint[94];
+    std::snprintf(hint, sizeof(hint), "%s  %s", arrows[i], shortcuts[i].label->get(cfg.language));
+    label(left + 8, top + 3, hint,
           available ? IM_COL32(245, 245, 245, 255) : IM_COL32(148, 159, 171, 255));
   }
   char hint[100];
-  std::snprintf(hint, sizeof(hint), "%s tuşunu bırak, %s ile aç",
+  std::snprintf(hint, sizeof(hint), text("%s tuşunu bırak, %s ile aç", "Release %s, then press %s to open"),
                 bindingName(SettingsModifier), bindingName(Confirm));
   label(x + 14, y + 105, hint);
-}
-static std::vector<std::wstring> keyboardRows() {
-  if (symbols)
-    return {L"1234567890", L"!\"#$%&'()*+,", L"-./:;<=>?@[\\", L"]^_`{|}~€£"};
-  return upper ? std::vector<std::wstring>{L"1234567890", L"QWERTYUIOPĞÜ",
-                                           L"ASDFGHJKLŞİ", L"ZXCVBNMÖÇ.,"}
-               : std::vector<std::wstring>{L"1234567890", L"qwertyuıopğü",
-                                           L"asdfghjklşi", L"zxcvbnmöç.,"};
 }
 static std::string utf8(const std::wstring &s) {
   int n = WideCharToMultiByte(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0,
@@ -917,7 +911,7 @@ static std::string utf8(const std::wstring &s) {
   return out;
 }
 static void keyAction() {
-  auto rows = keyboardRows();
+  auto rows = keyboardRows(cfg.language, upper, symbols);
   if (keyRow < 4) {
     character(rows[keyRow][keyCol]);
     return;
@@ -952,11 +946,11 @@ static void drawKeyboard(float width, float height) {
   panel(l, t, l + w, t + ch * 5 + 90);
   char hint[160];
   std::snprintf(hint, sizeof(hint),
-                "TÜRKÇE Q   |   %s: Sil   %s: Büyük/küçük   %s: Tamam",
+                text("TÜRKÇE Q   |   %s: Sil   %s: Büyük/küçük   %s: Tamam", "ENGLISH QWERTY   |   %s: Delete   %s: Change case   %s: OK"),
                 bindingName(Secondary), bindingName(Keyboard),
                 bindingName(Menu));
   label(l + 20, t + 12, hint);
-  auto rows = keyboardRows();
+  auto rows = keyboardRows(cfg.language, upper, symbols);
   auto d = ImGui::GetForegroundDrawList();
   for (int row = 0; row < 5; ++row) {
     int count = row == 4 ? 6 : int(rows[row].size());
@@ -967,11 +961,11 @@ static void drawKeyboard(float width, float height) {
       d->AddRectFilled(
           {x + 2, y + 2}, {x + cell - 2, y + ch - 2},
           sel ? IM_COL32(40, 170, 133, 255) : IM_COL32(40, 50, 65, 255), 5);
-      static const char *special[] = {"Boşluk", "Sil",   "Aa",
-                                      "#+=",    "Tamam", "İptal"};
-      auto text = row == 4 ? std::string(special[col])
+      const char *special[] = {text("Boşluk", "Space"), text("Sil", "Delete"),   "Aa",
+                                      "#+=",    text("Tamam", "OK"), text("İptal", "Cancel")};
+      auto caption = row == 4 ? std::string(special[col])
                            : utf8(std::wstring(1, rows[row][col]));
-      label(x + 10, y + ch * .28f, text.c_str());
+      label(x + 10, y + ch * .28f, caption.c_str());
     }
   }
   // No mirror of the field contents: LFS retains password masking and text
@@ -979,14 +973,17 @@ static void drawKeyboard(float width, float height) {
 }
 static void adjustSetting(int direction) {
   switch (settingRow) {
-  case 0:
+  case controllerSetting:
     cfg.slot = (cfg.slot + 1 + direction + 6) % 6 - 1;
     missingSlot = false;
     break;
-  case 1:
+  case languageSetting:
+    cfg.language = cfg.language == Language::English ? Language::Turkish : Language::English;
+    break;
+  case deadzoneSetting:
     cfg.deadzone = std::clamp(cfg.deadzone + direction * .01f, .1f, .45f);
     break;
-  case 2:
+  case cursorSpeedSetting:
     cfg.cursorSpeed =
         std::clamp(cfg.cursorSpeed + direction * 50.f, 200.f, 2400.f);
     break;
@@ -1032,10 +1029,10 @@ static void adjustShortcut(int step) {
 }
 static void drawShortcutEditor(float l, float t, float w) {
   panel(l, t, l + w, t + settingsHeight);
-  label(l + 22, t + 16, "KİŞİSEL MENÜ KISAYOLLARI");
+  label(l + 22, t + 16, text("KİŞİSEL MENÜ KISAYOLLARI", "CUSTOM MENU SHORTCUTS"));
   const auto &menu = shortcutMenus[shortcutEditMenu];
   const auto &directions = shortcutEditDraft[shortcutEditMenu];
-  const char *rows[] = {"Menü", "Yukarı", "Aşağı", "Sol", "Sağ"};
+  const char *rows[] = {text("Menü", "Menu"), text("Yukarı", "Up"), text("Aşağı", "Down"), text("Sol", "Left"), text("Sağ", "Right")};
   auto *draw = ImGui::GetForegroundDrawList();
   for (int row = 0; row < 5; ++row) {
     const float y = t + 58 + row * 49.f;
@@ -1044,38 +1041,48 @@ static void drawShortcutEditor(float l, float t, float w) {
                           IM_COL32(35, 110, 94, 255), 4);
     label(l + 25, y + 11, rows[row]);
     label(l + w * .36f, y + 11,
-          row == 0 ? menu.label : menu.targets[directions[row - 1]].label);
+          (row == 0 ? menu.label : menu.targets[directions[row - 1]].label).get(cfg.language));
   }
   char hint[128];
-  std::snprintf(hint, sizeof(hint), "D-pad: seç / değiştir   %s: varsayılanlara dön",
+  std::snprintf(hint, sizeof(hint), text("D-pad: seç / değiştir   %s: varsayılanlara dön", "D-pad: select / change   %s: restore defaults"),
                 buttonCaption(2));
   label(l + 22, t + 342, hint);
-  std::snprintf(hint, sizeof(hint), "%s: değişiklikleri al   %s: iptal",
+  std::snprintf(hint, sizeof(hint), text("%s: değişiklikleri al   %s: iptal", "%s: apply changes   %s: cancel"),
                 buttonCaption(0), buttonCaption(1));
   label(l + 22, t + 374, hint);
 }
 static void drawSettings(float l, float t, float w) {
   panel(l, t, l + w, t + settingsHeight);
-  label(l + 22, t + 16, "LfsPad ayarları");
+  label(l + 22, t + 16, text("LfsPad ayarları", "LfsPad settings"));
+  const char *actionNames[] = {text("Onay", "Confirm"),
+                                    text("Geri", "Back"),
+                                    text("Sağ tıklama / sil", "Right click / delete"),
+                                    text("Klavye / büyük harf", "Keyboard / change case"),
+                                    text("Önceki sekme", "Previous tab"),
+                                    text("Sonraki sekme", "Next tab"),
+                                    text("Menü / metni onayla", "Menu / submit text"),
+                                    text("Menü kısayolları için basılı tut", "Hold for menu shortcuts"),
+                                    text("İmleç modu", "Cursor mode")};
   char values[settingCount][100];
   if (cfg.slot == playStationPreference)
-    std::snprintf(values[0], 80, "Kontrolcü: PlayStation / USB adaptör");
+    std::snprintf(values[controllerSetting], 80, "%s", text("Kontrolcü: PlayStation / USB adaptör", "Controller: PlayStation / USB adapter"));
   else if (cfg.slot >= 0)
-    std::snprintf(values[0], 80, "Kontrolcü: %d", cfg.slot + 1);
+    std::snprintf(values[controllerSetting], 80, text("Kontrolcü: %d", "Controller: %d"), cfg.slot + 1);
   else
-    std::snprintf(values[0], 80, "Kontrolcü: Otomatik");
-  std::snprintf(values[1], 80, "Analog ölü bölgesi: %d%%",
+    std::snprintf(values[controllerSetting], 80, "%s", text("Kontrolcü: Otomatik", "Controller: Auto"));
+  std::snprintf(values[languageSetting], 100, "%s", text("Dil: Türkçe", "Language: English"));
+  std::snprintf(values[deadzoneSetting], 80, text("Analog ölü bölgesi: %d%%", "Stick deadzone: %d%%"),
                 int(cfg.deadzone * 100 + .5f));
-  std::snprintf(values[2], 80, "İmleç hızı: %.0f", cfg.cursorSpeed);
+  std::snprintf(values[cursorSpeedSetting], 80, text("İmleç hızı: %.0f", "Cursor speed: %.0f"), cfg.cursorSpeed);
   for (int i = 0; i < 9; ++i)
     std::snprintf(values[i + firstBindingSetting], 100, "%s: %s", actionNames[i],
                   buttonCaption(cfg.bindings[i]));
-  std::snprintf(values[quickMenuSetting], 100, "Hızlı işlem menüsü: %s",
+  std::snprintf(values[quickMenuSetting], 100, text("Hızlı işlem menüsü: %s", "Quick actions: %s"),
                 quickButtonCaption());
-  std::snprintf(values[monitorSetting], 100, "Canlı giriş göstergesi: %s",
-                cfg.inputMonitor ? "Açık" : "Kapalı");
-  std::snprintf(values[shortcutSetting], 100, "Kişisel menü kısayolları");
-  std::snprintf(values[rumbleSetting], 100, "Sürüş titreşimi: %d%%",
+  std::snprintf(values[monitorSetting], 100, text("Canlı giriş göstergesi: %s", "Live input display: %s"),
+                cfg.inputMonitor ? text("Açık", "On") : text("Kapalı", "Off"));
+  std::snprintf(values[shortcutSetting], 100, "%s", text("Kişisel menü kısayolları", "Custom menu shortcuts"));
+  std::snprintf(values[rumbleSetting], 100, text("Sürüş titreşimi: %d%%", "Driving vibration: %d%%"),
                 cfg.rumbleStrength);
   int first = std::clamp(settingRow - 3, 0, settingCount - 6);
   for (int row = 0; row < 6; ++row) {
@@ -1090,34 +1097,34 @@ static void drawSettings(float l, float t, float w) {
   if (bindingCapture.active()) {
     label(l + 22, t + 342,
           bindingCapture.phase == BindingCapture::Phase::Release
-              ? "Önce basılı tuşları bırak."
-              : "Kullanmak istediğin tuşa bas.",
+              ? text("Önce basılı tuşları bırak.", "Release the buttons first.")
+              : text("Kullanmak istediğin tuşa bas.", "Press the button you want to assign."),
           IM_COL32(255, 210, 90, 255));
-    label(l + 22, t + 374, "D-pad sol: atamayı iptal et");
+    label(l + 22, t + 374, text("D-pad sol: atamayı iptal et", "D-pad left: cancel assignment"));
   } else if (settingRow == shortcutSetting) {
     char hint[128];
-    std::snprintf(hint, sizeof(hint), "D-pad: seç   %s: kısayolları düzenle   %s: iptal",
+    std::snprintf(hint, sizeof(hint), text("D-pad: seç   %s: kısayolları düzenle   %s: iptal", "D-pad: select   %s: edit shortcuts   %s: cancel"),
                   buttonCaption(0), buttonCaption(1));
     label(l + 22, t + 342, hint);
   } else {
     char hint[128];
-    std::snprintf(hint, sizeof(hint), "D-pad: seç / değiştir   %s: kaydet   %s: iptal",
+    std::snprintf(hint, sizeof(hint), text("D-pad: seç / değiştir   %s: kaydet   %s: iptal", "D-pad: select / change   %s: save   %s: cancel"),
                   buttonCaption(0), buttonCaption(1));
     label(l + 22, t + 342, hint);
     if (isBindingSetting())
-      std::snprintf(hint, sizeof(hint), "%s: tuş ata   Tuş doluysa iki görev yer değiştirir.",
+      std::snprintf(hint, sizeof(hint), text("%s: tuş ata   Tuş doluysa iki görev yer değiştirir.", "%s: assign button   Buttons already in use are swapped."),
                     buttonCaption(2));
     else if (settingRow == rumbleSetting)
-      std::snprintf(hint, sizeof(hint), "%s: titreşimi dene    %%0: kapalı", buttonCaption(2));
+      std::snprintf(hint, sizeof(hint), text("%s: titreşimi dene    %%0: kapalı", "%s: test vibration   0%%: off"), buttonCaption(2));
     else
       hint[0] = 0;
     label(l + 22, t + 374, hint);
   }
   if (missingSlot)
-    label(l + 22, t + 320, "Seçtiğin kontrolcüyü bağla.",
+    label(l + 22, t + 320, text("Seçtiğin kontrolcüyü bağla.", "Connect the selected controller."),
           IM_COL32(255, 210, 90, 255));
   else if (settingsSaveFailed)
-    label(l + 22, t + 320, "Ayarlar kaydedilemedi. A ile tekrar dene.",
+    label(l + 22, t + 320, text("Ayarlar kaydedilemedi. A ile tekrar dene.", "Couldn't save settings. Press A to try again."),
           IM_COL32(255, 210, 90, 255));
 }
 static constexpr ImU32 meterActive = IM_COL32(78, 223, 186, 255),
@@ -1171,35 +1178,36 @@ static void drawInputMeter(float x, float y, const XINPUT_GAMEPAD &gamepad,
   constexpr float column = (meterWidth - 44) * .5f;
   const float left = x + 14, right = x + meterWidth - 14 - column;
   panel(x, y, x + meterWidth, y + meterHeight);
-  label(left, y + 12, "CANLI GİRİŞ");
-  char slotText[48] = "Kontrolcü bekleniyor";
+  label(left, y + 12, text("CANLI GİRİŞ", "LIVE INPUT"));
+  char slotText[48];
+  std::snprintf(slotText, sizeof(slotText), "%s", text("Kontrolcü bekleniyor", "Waiting for controller"));
   if (connected) {
     if (isPlayStationController(slot))
-      std::snprintf(slotText, sizeof(slotText), "PlayStation / adaptör");
+      std::snprintf(slotText, sizeof(slotText), "%s", text("PlayStation / adaptör", "PlayStation / adapter"));
     else
-      std::snprintf(slotText, sizeof(slotText), "Kontrolcü %d", int(slot) + 1);
+      std::snprintf(slotText, sizeof(slotText), text("Kontrolcü %d", "Controller %d"), int(slot) + 1);
   }
   label(left, y + 42, slotText, meterActive);
-  const char *status = !connected ? "Kontrolcü bağlı değil"
-                       : !singlePad || sample.ambiguous ? "Birden çok cihaz"
-                       : !sample.tick ? "LFS’den veri bekleniyor"
-                       : sample.axesFiltered ? "Eksenler sıfırda"
-                       : sample.buttonsFiltered ? "Tuş filtresi açık"
-                       : "Oyunun gördüğü";
+  const char *status = !connected ? text("Kontrolcü bağlı değil", "Controller disconnected")
+                       : !singlePad || sample.ambiguous ? text("Birden çok cihaz", "Multiple devices")
+                       : !sample.tick ? text("LFS’den veri bekleniyor", "Waiting for LFS input")
+                       : sample.axesFiltered ? text("Eksenler sıfırda", "Axes at neutral")
+                       : sample.buttonsFiltered ? text("Tuş filtresi açık", "Buttons filtered")
+                       : text("Oyunun gördüğü", "Seen by LFS");
   label(right, y + 42, status, sample.tick ? meterActive : meterWarning);
-  drawMeterAxis(left, y + 69, column, "Direksiyon",
+  drawMeterAxis(left, y + 69, column, text("Direksiyon", "Steering"),
                 axisFraction(gamepad.sThumbLX, -32768, 32767), connected, true);
-  drawMeterAxis(left, y + 103, column, "Gaz (RT)",
+  drawMeterAxis(left, y + 103, column, text("Gaz (RT)", "Throttle (RT)"),
                 gamepad.bRightTrigger / 255.f, connected, false);
-  drawMeterAxis(left, y + 137, column, "Fren (LT)",
+  drawMeterAxis(left, y + 137, column, text("Fren (LT)", "Brake (LT)"),
                 gamepad.bLeftTrigger / 255.f, connected, false);
-  drawMeterAxis(right, y + 69, column, "Sol X", sample.steering,
+  drawMeterAxis(right, y + 69, column, text("Sol X", "Left X"), sample.steering,
                 sample.steeringAvailable, true);
   if (sample.splitPedals) {
-    drawMeterAxis(right, y + 103, column, "Gaz (RT)", sample.throttle, true, false);
-    drawMeterAxis(right, y + 137, column, "Fren (LT)", sample.brake, true, false);
+    drawMeterAxis(right, y + 103, column, text("Gaz (RT)", "Throttle (RT)"), sample.throttle, true, false);
+    drawMeterAxis(right, y + 137, column, text("Fren (LT)", "Brake (LT)"), sample.brake, true, false);
   } else {
-    drawMeterAxis(right, y + 103, column, "Ortak Z (LT/RT)", sample.triggers,
+    drawMeterAxis(right, y + 103, column, text("Ortak Z (LT/RT)", "Combined Z (LT/RT)"), sample.triggers,
                   sample.triggersAvailable, true);
   }
 
@@ -1210,11 +1218,11 @@ static void drawInputMeter(float x, float y, const XINPUT_GAMEPAD &gamepad,
                 raw & XINPUT_GAMEPAD_DPAD_DOWN ? "↓" : "",
                 raw & XINPUT_GAMEPAD_DPAD_LEFT ? "←" : "",
                 raw & XINPUT_GAMEPAD_DPAD_RIGHT ? "→" : "",
-                (raw & 0xf) ? "" : connected ? "Nötr" : "-");
+                (raw & 0xf) ? "" : connected ? text("Nötr", "Neutral") : "-");
   label(left, y + 174, direction, (raw & 0xf) ? meterActive : meterMuted);
   static const char *povNames[] = {"↑", "↑→", "→", "↓→", "↓", "↓←", "←", "↑←"};
   const bool povMoved = sample.povAvailable && sample.pov < 36000;
-  const char *pov = !sample.povAvailable ? "-" : !povMoved ? "Nötr"
+  const char *pov = !sample.povAvailable ? "-" : !povMoved ? text("Nötr", "Neutral")
                          : povNames[((sample.pov + 2250) / 4500) % 8];
   std::snprintf(direction, sizeof(direction), "D-pad  %s", pov);
   label(right, y + 174, direction, povMoved ? meterActive : meterMuted);
@@ -1236,11 +1244,11 @@ static void drawQuickMenu(float width, float height, QuickAction selection) {
           action == selection ? IM_COL32(70, 255, 205, 255)
                               : IM_COL32(230, 239, 248, 255));
   };
-  option(width * .5f, t + 12, "↑ Kamera", QuickAction::Camera);
-  option(l + w * .23f, t + 50, "← Ayna", QuickAction::Mirror);
-  option(l + w * .77f, t + 50, "Pit bilgisi →", QuickAction::Pit);
+  option(width * .5f, t + 12, text("↑ Kamera", "↑ Camera"), QuickAction::Camera);
+  option(l + w * .23f, t + 50, text("← Ayna", "← Mirrors"), QuickAction::Mirror);
+  option(l + w * .77f, t + 50, text("Pit bilgisi →", "Pit info →"), QuickAction::Pit);
   char hint[96];
-  std::snprintf(hint, sizeof(hint), "%s tuşunu bırak: uygula   |   Ortada: iptal",
+  std::snprintf(hint, sizeof(hint), text("%s tuşunu bırak: uygula   |   Ortada: iptal", "Release %s to apply   |   Center stick to cancel"),
                 quickButtonCaption());
   label(width * .5f - ImGui::CalcTextSize(hint).x * .5f, t + 91, hint);
 }
@@ -1264,45 +1272,45 @@ static void drawReplay(float width, float height, const ReplayState &replay) {
   char hint[220];
   const unsigned now = replay.position / 1000, total = replay.duration / 1000;
   std::snprintf(hint, sizeof(hint),
-                "Tekrar  %u:%02u / %u:%02u    %s: %s    LT / RT: -5 / +5 sn",
+                text("Tekrar  %u:%02u / %u:%02u    %s: %s    LT / RT: -5 / +5 sn", "Replay  %u:%02u / %u:%02u    %s: %s    LT / RT: -5 / +5 s"),
                 now / 60, now % 60, total / 60, total % 60, bindingName(Confirm),
-                replay.paused ? "Oynat" : "Duraklat");
+                replay.paused ? text("Oynat", "Play") : text("Duraklat", "Pause"));
   const float w = ImGui::CalcTextSize(hint).x + 24;
   const float l = (width - w) * .5f;
   panel(l, height - 82, l + w, height - 38);
-  label(l + 12, height - 72, replay.seeking ? "Tekrar sarılıyor..." : hint);
+  label(l + 12, height - 72, replay.seeking ? text("Tekrar sarılıyor...", "Seeking...") : hint);
 }
 static void drawRecovery(float width, float height, RecoveryPhase phase,
                          RaceSession session, bool connected, bool canResume) {
   if (width < 64)
     return;
-  const char *title = "Kontrolcü bağlantısı kesildi";
-  const char *detail = "Kontrolcüyü yeniden bağla";
+  const char *title = text("Kontrolcü bağlantısı kesildi", "Controller disconnected");
+  const char *detail = text("Kontrolcüyü yeniden bağla", "Reconnect your controller");
   char hint[96];
   switch (phase) {
   case RecoveryPhase::Pausing:
-    detail = "Oyun duraklatılıyor...";
+    detail = text("Oyun duraklatılıyor...", "Pausing the game...");
     break;
   case RecoveryPhase::Paused:
     if (connected) {
-      title = "Kontrolcü yeniden bağlandı";
+      title = text("Kontrolcü yeniden bağlandı", "Controller reconnected");
       if (session == RaceSession::Unknown)
-        detail = "Oyun durumu doğrulanıyor...";
+        detail = text("Oyun durumu doğrulanıyor...", "Checking game state...");
       else if (canResume) {
-        std::snprintf(hint, sizeof(hint), "%s: Devam et", bindingName(Confirm));
+        std::snprintf(hint, sizeof(hint), text("%s: Devam et", "%s: Resume"), bindingName(Confirm));
         detail = hint;
       } else
-        detail = "Devam etmek için açık menüyü kapat";
+        detail = text("Devam etmek için açık menüyü kapat", "Close the menu to resume");
     } else
-      detail = "Oyun duraklatıldı. Kontrolcüyü yeniden bağla.";
+      detail = text("Oyun duraklatıldı. Kontrolcüyü yeniden bağla.", "Game paused. Reconnect your controller.");
     break;
   case RecoveryPhase::Resuming:
-    title = "Kontrolcü yeniden bağlandı";
-    detail = "Sürüşe dönülüyor...";
+    title = text("Kontrolcü yeniden bağlandı", "Controller reconnected");
+    detail = text("Sürüşe dönülüyor...", "Resuming the race...");
     break;
   default:
     if (session == RaceSession::Multiplayer)
-      detail = "Çevrimiçi yarış sürüyor";
+      detail = text("Çevrimiçi yarış sürüyor", "Online race still running");
     break;
   }
   const float w = std::min(width - 20, std::max(ImGui::CalcTextSize(title).x,
@@ -1320,7 +1328,7 @@ static void drawFinishHold(const Item &item, float width, double now) {
     return;
   auto button = pixel(item.rect.l, item.rect.t);
   char hint[96];
-  std::snprintf(hint, sizeof(hint), "Yarışı bitirmek için %s tuşunu basılı tut",
+  std::snprintf(hint, sizeof(hint), text("Yarışı bitirmek için %s tuşunu basılı tut", "Hold %s to end the race"),
                 bindingName(Confirm));
   const float w = std::min(ImGui::CalcTextSize(hint).x + 24, width - 20);
   const float left = std::clamp(button.x, 10.f, std::max(10.f, width - w - 10));
@@ -1429,18 +1437,18 @@ void frame(IDXGISwapChain *swap) {
   auto sim = pollSim();
   const auto replay = replayState();
   const auto modal = *reinterpret_cast<const uintptr_t *>(imageBase + 0x49c298);
-  const bool text = modal == uintptr_t(imageBase + 0x95ec20);
+  const bool nativeText = modal == uintptr_t(imageBase + 0x95ec20);
   const bool wasGarageRoot = garageRoot, wasGarageViewer = garageViewer;
   const bool recoveringGarageFocus = garageSkins || garageModal || wasGarageRoot;
   const bool raceMenu = gather(modal, sim.known && sim.mode == 3);
   if (garageRoot && !recoveringGarageFocus && !wasGarageViewer)
     garageReturnCallback = 0;
   const bool playingReplay = (replay.active || (sim.flags & 2)) &&
-                             sim.mode == 0 && !text && !raceMenu &&
+                             sim.mode == 0 && !nativeText && !raceMenu &&
                              !(sim.flags & (8 | 16 | 256 | 32768));
   const bool menu = !playingReplay &&
                     menuCapture(sim.known, sim.flags, sim.mode,
-                                text || raceMenu || garageRoot || garageViewer || garageSkins);
+                                nativeText || raceMenu || garageRoot || garageViewer || garageSkins);
   const bool shortcutEditorWasOpen = shortcutEditor;
   if (!menu && settings) {
     loadConfig();
@@ -1629,7 +1637,7 @@ void frame(IDXGISwapChain *swap) {
   static SettingsTriggerChord settingsChord;
   static double diagnosticTriggersUntil = 0;
   const bool settingsChordAllowed = menu && foreground && !contextChanged &&
-      !lostAssignmentFocus && (connected || cfg.diagnostics) && !text && !keyboard &&
+      !lostAssignmentFocus && (connected || cfg.diagnostics) && !nativeText && !keyboard &&
       !garageViewer && !adjustingSlider && !cursorDragging && !bindingCapture.active() &&
       (!pedalCalibration || settings);
   if (!settingsChordAllowed)
@@ -1641,7 +1649,7 @@ void frame(IDXGISwapChain *swap) {
   const bool toggleSettings = settingsChord.update(
       diagnosticTriggers ? 255 : pad.bLeftTrigger,
       diagnosticTriggers ? 255 : pad.bRightTrigger, time, settingsChordAllowed);
-  const auto shortcutScreen = menu && !text ? findShortcutScreen(modal, raceMenu)
+  const auto shortcutScreen = menu && !nativeText ? findShortcutScreen(modal, raceMenu)
                                              : ShortcutScreen::None;
   const auto menuShortcuts = findMenuShortcuts(shortcutScreen, modal);
   const bool hasMenuShortcuts =
@@ -1850,9 +1858,9 @@ void frame(IDXGISwapChain *swap) {
         gate.blocked = 0xffff;
       }
     }
-    if (text && !manualKeyboard && !settings)
+    if (nativeText && !manualKeyboard && !settings)
       keyboard = true;
-    if (!text && !manualKeyboard)
+    if (!nativeText && !manualKeyboard)
       keyboard = false;
     if (!menu) {
       settings = keyboard = manualKeyboard = false;
@@ -1860,7 +1868,7 @@ void frame(IDXGISwapChain *swap) {
     }
     if (menu && !toggleSettings && !closingSettingsWithStart) {
       if (keyboard) {
-        auto rows = keyboardRows();
+        auto rows = keyboardRows(cfg.language, upper, symbols);
         if (nav[0])
           keyRow = (keyRow + 4) % 5;
         if (nav[1])
@@ -2169,7 +2177,7 @@ void frame(IDXGISwapChain *swap) {
   static bool hadTelemetry = false;
   static bool hadWheelTelemetry = false;
   const bool rumbleDriving = foreground && connected && (singlePad || inputSlot >= 0) &&
-      onTrack && !menu && !settings && !keyboard && !text && !playingReplay &&
+      onTrack && !menu && !settings && !keyboard && !nativeText && !playingReplay &&
       !recoveryConsumesConfirm && !menuPressed && !lostAssignmentFocus &&
       !(sim.flags & (2 | 4 | 8 | 16 | 256 | 32768)) &&
       sim.localPlayer && sim.localPlayer == sim.viewedPlayer && cfg.rumbleStrength;
@@ -2245,28 +2253,27 @@ void frame(IDXGISwapChain *swap) {
       char pageHint[80]{};
       char shortcutHint[80]{};
       if (hasMenuShortcuts && !cursorMode)
-        std::snprintf(shortcutHint, sizeof(shortcutHint), "   %s + D-pad: Kısayol",
+        std::snprintf(shortcutHint, sizeof(shortcutHint), text("   %s + D-pad: Kısayol", "   %s + D-pad: Shortcut"),
                       bindingName(SettingsModifier));
       if (inList && !cursorMode)
-        std::snprintf(pageHint, sizeof(pageHint), "   %s / %s: Sayfa",
+        std::snprintf(pageHint, sizeof(pageHint), text("   %s / %s: Sayfa", "   %s / %s: Page"),
                       bindingName(PreviousTab), bindingName(NextTab));
       const char *settingsHint = garageViewer || adjustingSlider || pedalCalibration ? "" :
-                                 playStation ? "   L2+R2 tut: Ayarlar" : "   LT+RT tut: Ayarlar";
+                                 playStation ? text("   L2+R2 tut: Ayarlar", "   Hold L2+R2: Settings") : text("   LT+RT tut: Ayarlar", "   Hold LT+RT: Settings");
       std::snprintf(hint, sizeof(hint),
-                    "LFS PAD  |  %s: Seç   %s: Geri   %s: Klavye   %s: %s%s%s%s%s",
+                    text("LFS PAD  |  %s: Seç   %s: Geri   %s: Klavye   %s: %s%s%s%s%s", "LFS PAD  |  %s: Select   %s: Back   %s: Keyboard   %s: %s%s%s%s%s"),
                     bindingName(Confirm), bindingName(Back),
                     bindingName(Keyboard), bindingName(CursorMode),
-                    cursorMode ? "Seçim" : "İmleç", settingsHint,
+                    cursorMode ? text("Seçim", "Selection") : text("İmleç", "Cursor"), settingsHint,
                     pageHint, shortcutHint,
-                    !connected && !cfg.diagnostics ? "   [Kontrolcü bekleniyor]" : "");
+                    !connected && !cfg.diagnostics ? text("   [Kontrolcü bekleniyor]", "   [Waiting for controller]") : "");
       if (garageViewer && !cursorMode)
         std::snprintf(hint, sizeof(hint),
-                      "Sağ analog: Döndür   LT / RT: Uzaklaştır / yakınlaştır   "
-                      "%s: Garaja dön   %s: İmleç",
+                      text("Sağ analog: Döndür   LT / RT: Uzaklaştır / yakınlaştır   %s: Garaja dön   %s: İmleç", "Right stick: Rotate   LT / RT: Zoom out / in   %s: Back to garage   %s: Cursor"),
                       bindingName(Back), bindingName(CursorMode));
       if (garageViewer && !cursorMode && connected && !singlePad)
         std::snprintf(hint, sizeof(hint),
-                      "Aracı çevirmek için tek kol bağla   |   %s: Garaja dön   %s: İmleç",
+                      text("Aracı çevirmek için tek kol bağla   |   %s: Garaja dön   %s: İmleç", "Connect one controller to rotate the car   |   %s: Back to garage   %s: Cursor"),
                       bindingName(Back), bindingName(CursorMode));
       auto size = ImGui::CalcTextSize(hint);
       float w = std::min(width - 20, size.x + 24),
@@ -2297,7 +2304,7 @@ void frame(IDXGISwapChain *swap) {
       if (adjustingSlider) {
         char sliderHint[120];
         std::snprintf(sliderHint, sizeof(sliderHint),
-                      "Kaydırıcı: sol / sağ    %s / %s: bitir",
+                      text("Kaydırıcı: sol / sağ    %s / %s: bitir", "Slider: left / right    %s / %s: finish"),
                       bindingName(Confirm), bindingName(Back));
         label(pos.x + 12, pos.y + 36, sliderHint);
       }
@@ -2331,14 +2338,14 @@ void frame(IDXGISwapChain *swap) {
     drawQuickMenu(width, height, quickAction);
   if (foreground && !sim.known) {
     char hint[64];
-    std::snprintf(hint, sizeof(hint), "LfsPad InSim bağlantısı bekliyor (%u)",
+    std::snprintf(hint, sizeof(hint), text("LfsPad InSim bağlantısı bekliyor (%u)", "LfsPad waiting for InSim (%u)"),
                   static_cast<unsigned>(inSimPort()));
     label(20, 20, hint, IM_COL32(255, 210, 90, 255));
   }
   if (cfg.diagnostics && ticks++ % 300 == 0)
     log("Frame: flags=%u mode=%u menu=%d raceMenu=%d text=%d items=%zu "
         "selection=%d rumble=%d local=%u viewed=%u",
-        sim.flags, sim.mode, menu, raceMenu, text, items.size(), selected,
+        sim.flags, sim.mode, menu, raceMenu, nativeText, items.size(), selected,
         rumbleDriving, sim.localPlayer, sim.viewedPlayer);
   wasMenu = menu;
   wasRaceMenu = raceMenu;

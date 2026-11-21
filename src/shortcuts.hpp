@@ -1,4 +1,5 @@
 #pragma once
+#include "language.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -9,7 +10,7 @@ namespace pad {
 enum class ShortcutScreen { Main, SinglePlayer, Garage, Options, Race, None };
 struct ShortcutTarget {
   const wchar_t *id = nullptr;
-  const char *label = nullptr;
+  LocalizedText label;
   std::uintptr_t callback = 0;
   unsigned type = 0, value = 0;
 };
@@ -17,38 +18,38 @@ using ShortcutDirections = std::array<int, 4>;
 inline constexpr ShortcutDirections defaultShortcutDirections{1, 2, 3, 4};
 struct ShortcutMenu {
   const wchar_t *key = nullptr;
-  const char *label = nullptr;
+  LocalizedText label;
   int count = 0;
   // Index zero is disabled. The next four entries are the default directions.
   std::array<ShortcutTarget, 6> targets{};
   std::uintptr_t ownerRva = 0;
 };
-inline constexpr ShortcutTarget shortcutOff{L"off", "Kapalı"};
+inline constexpr ShortcutTarget shortcutOff{L"off", {"Kapalı", "Off"}};
 inline constexpr std::array<ShortcutMenu, std::size_t(ShortcutScreen::None)>
     shortcutMenus{{
-        {L"MainMenu", "Ana menü", 6,
-         {shortcutOff, {L"solo", "Tek oyunculu", 0x84750, 9, 1},
-          {L"options", "Seçenekler", 0x84750, 9, 3},
-          {L"replays", "Tekrarlar", 0x84750, 9, 4},
-          {L"online", "Çok oyunculu", 0x84750, 9, 2},
-          {L"training", "Eğitim", 0x84750, 9, 5}}},
-        {L"SinglePlayer", "Tek oyunculu hazırlık", 5,
-         {shortcutOff, {L"garage", "Garaj", 0xac200, 4, 2},
-          {L"go", "Yürü", 0xac0c0, 3, 0}, {L"track", "Pist", 0xac200, 4, 3},
-          {L"driver", "Sürücü", 0xac200, 4, 4}}},
-        {L"Garage", "Garaj", 6,
-         {shortcutOff, {L"setups", "Ayar listesi"},
-          {L"ok", "Tamam", 0xb3e00, 3, 1}, {L"colours", "Renkler", 0x141220, 0, 1},
-          {L"viewer", "Görüntüleyici", 0xb1780, 0, 1},
-          {L"skins", "Kaplama seç", 0xb5740, 0, 0}}},
-        {L"Options", "Seçenekler", 5,
-         {shortcutOff, {L"controls", "Kontroller", 0x111760, 4, 7},
-          {L"ok", "Tamam", 0x111760, 3, 0}, {L"display", "Ekran", 0x111760, 4, 2},
-          {L"graphics", "Grafik", 0x111760, 4, 3}}, 0x49129c},
-        {L"RaceMenu", "Durdurma menüsü", 5,
-         {shortcutOff, {L"resume", "Devam et", 0x8e310, 5, 0},
-          {L"pit", "Pit", 0x8e310, 5, 2}, {L"options", "Seçenekler", 0x8e310, 5, 1},
-          {L"replay", "Tekrarlamayı göster", 0x8e310, 5, 3}}},
+        {L"MainMenu", {"Ana menü", "Main menu"}, 6,
+         {shortcutOff, {L"solo", {"Tek oyunculu", "Single player"}, 0x84750, 9, 1},
+          {L"options", {"Seçenekler", "Options"}, 0x84750, 9, 3},
+          {L"replays", {"Tekrarlar", "Replays"}, 0x84750, 9, 4},
+          {L"online", {"Çok oyunculu", "Multiplayer"}, 0x84750, 9, 2},
+          {L"training", {"Eğitim", "Training"}, 0x84750, 9, 5}}},
+        {L"SinglePlayer", {"Tek oyunculu hazırlık", "Single-player setup"}, 5,
+         {shortcutOff, {L"garage", {"Garaj", "Garage"}, 0xac200, 4, 2},
+          {L"go", {"Yürü", "Go"}, 0xac0c0, 3, 0}, {L"track", {"Pist", "Track"}, 0xac200, 4, 3},
+          {L"driver", {"Sürücü", "Driver"}, 0xac200, 4, 4}}},
+        {L"Garage", {"Garaj", "Garage"}, 6,
+         {shortcutOff, {L"setups", {"Ayar listesi", "Setups"}},
+          {L"ok", {"Tamam", "OK"}, 0xb3e00, 3, 1}, {L"colours", {"Renkler", "Colours"}, 0x141220, 0, 1},
+          {L"viewer", {"Görüntüleyici", "Viewer"}, 0xb1780, 0, 1},
+          {L"skins", {"Kaplama seç", "Select skin"}, 0xb5740, 0, 0}}},
+        {L"Options", {"Seçenekler", "Options"}, 5,
+         {shortcutOff, {L"controls", {"Kontroller", "Controls"}, 0x111760, 4, 7},
+          {L"ok", {"Tamam", "OK"}, 0x111760, 3, 0}, {L"display", {"Ekran", "Display"}, 0x111760, 4, 2},
+          {L"graphics", {"Grafik", "Graphics"}, 0x111760, 4, 3}}, 0x49129c},
+        {L"RaceMenu", {"Durdurma menüsü", "Pause menu"}, 5,
+         {shortcutOff, {L"resume", {"Devam et", "Resume"}, 0x8e310, 5, 0},
+          {L"pit", {"Pit", "Pit"}, 0x8e310, 5, 2}, {L"options", {"Seçenekler", "Options"}, 0x8e310, 5, 1},
+          {L"replay", {"Tekrarlamayı göster", "Show replay"}, 0x8e310, 5, 3}}},
     }};
 using ShortcutMappings = std::array<ShortcutDirections, shortcutMenus.size()>;
 
@@ -95,7 +96,7 @@ inline void assignShortcut(ShortcutDirections &directions, int direction, int ta
 }
 struct ResolvedShortcut {
   int item = -1;
-  const char *label = nullptr;
+  const LocalizedText *label = nullptr;
 };
 using ResolvedShortcuts = std::array<ResolvedShortcut, 4>;
 template <typename FindItem>
@@ -106,7 +107,7 @@ ResolvedShortcuts resolveShortcuts(const ShortcutMenu &menu,
     const int index = directions[i];
     if (index) {
       const auto &target = menu.targets[index];
-      result[i] = {findItem(target), target.label};
+      result[i] = {findItem(target), &target.label};
     }
   }
   return result;

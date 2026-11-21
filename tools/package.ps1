@@ -11,7 +11,7 @@ if (!(Test-Path -LiteralPath $license)) { throw 'Dear ImGui license missing.' }
 $sdlLicense="$projectRoot\.tools\SDL3-3.4.20\LICENSE.txt"
 $hidapiLicense="$projectRoot\.tools\SDL3-3.4.20\src\hidapi\LICENSE-bsd.txt"
 New-Item -ItemType Directory -Path "$packageRoot\tools","$sourceRoot\src","$sourceRoot\tools\setup","$sourceRoot\tests" -Force | Out-Null
-$documents=@('README.md','KONTROLLER.md','ARCHITECTURE.md','VALIDATION.md','LfsPad.ini')
+$documents=@('README.md','README.en.md','KONTROLLER.md','CONTROLS.md','ARCHITECTURE.md','VALIDATION.md','LfsPad.ini')
 foreach ($file in $documents) {
     Copy-Item -LiteralPath "$projectRoot\$file" -Destination $packageRoot -Force
     Copy-Item -LiteralPath "$projectRoot\$file" -Destination $sourceRoot -Force

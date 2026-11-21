@@ -1,5 +1,9 @@
 # LfsPad tuş rehberi
 
+**Türkçe** · [English](CONTROLS.md)
+
+Menüde iki tetiği birlikte tut. **Dil** satırını sağ/sol ile değiştir, A ile kaydet veya B ile vazgeç.
+
 ## Menüde hangi tuşu kullanacağım?
 
 | Yapmak istediğin | Varsayılan tuş |

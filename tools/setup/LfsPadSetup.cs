@@ -9,6 +9,12 @@ using System.Windows.Forms;
 
 namespace LfsPadSetup
 {
+    internal static class Ui
+    {
+        internal static bool English = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName != "tr";
+        internal static string T(string tr, string en) { return English ? en : tr; }
+    }
+
     internal static class Program
     {
         [STAThread]
@@ -21,7 +27,7 @@ namespace LfsPadSetup
             {
                 if (!firstInstance)
                 {
-                    MessageBox.Show("Bir LfsPad kurulum penceresi zaten açık.", "LfsPad");
+                    MessageBox.Show(Ui.T("Bir LfsPad kurulum penceresi zaten açık.", "LfsPad Setup is already open."), "LfsPad");
                     return;
                 }
                 try
@@ -39,15 +45,16 @@ namespace LfsPadSetup
     internal sealed class SetupWindow : Form
     {
         private readonly TextBox folder = new TextBox();
-        private readonly Button browse = new Button { Text = "Göz at", AutoSize = true };
-        private readonly Button install = new Button { Text = "Kur", AutoSize = true };
-        private readonly Button remove = new Button { Text = "Kaldır", AutoSize = true };
+        private readonly Button browse = new Button { Text = Ui.T("Göz at", "Browse"), AutoSize = true };
+        private readonly Button install = new Button { Text = Ui.T("Kur", "Install"), AutoSize = true };
+        private readonly Button remove = new Button { Text = Ui.T("Kaldır", "Uninstall"), AutoSize = true };
         private readonly Label status = new Label { AutoSize = true, MaximumSize = new Size(505, 0) };
+        private readonly ComboBox language = new ComboBox();
         private bool busy;
 
         internal SetupWindow()
         {
-            Text = "LfsPad Kurulumu";
+            Text = Ui.T("LfsPad Kurulumu", "LfsPad Setup");
             Font = SystemFonts.MessageBoxFont;
             AutoScaleMode = AutoScaleMode.Font;
             AutoSize = true;
@@ -76,8 +83,13 @@ namespace LfsPadSetup
                 Margin = new Padding(3, 0, 3, 12),
             };
             layout.Controls.Add(title, 0, 0);
-            layout.SetColumnSpan(title, 2);
-            var folderLabel = new Label { Text = "Live for Speed 0.8C38 klasörü", AutoSize = true };
+            language.DropDownStyle = ComboBoxStyle.DropDownList;
+            language.Dock = DockStyle.Fill;
+            language.Items.AddRange(new object[] { "Türkçe", "English" });
+            language.SelectedIndex = Ui.English ? 1 : 0;
+            language.AccessibleName = "Dil / Language";
+            layout.Controls.Add(language, 1, 0);
+            var folderLabel = new Label { Text = Ui.T("Live for Speed 0.8C38 klasörü", "Live for Speed 0.8C38 folder"), AutoSize = true };
             layout.Controls.Add(folderLabel, 0, 1);
             layout.SetColumnSpan(folderLabel, 2);
             folder.AccessibleName = folderLabel.Text;
@@ -98,7 +110,7 @@ namespace LfsPadSetup
             layout.SetColumnSpan(footer, 2);
             var license = new LinkLabel
             {
-                Text = "Üçüncü taraf lisansları",
+                Text = Ui.T("Üçüncü taraf lisansları", "Third-party licenses"),
                 AutoSize = true,
                 Anchor = AnchorStyles.Left,
             };
@@ -117,6 +129,15 @@ namespace LfsPadSetup
             buttons.Controls.Add(remove);
             AcceptButton = install;
 
+            language.SelectedIndexChanged += delegate {
+                Ui.English = language.SelectedIndex == 1;
+                Text = Ui.T("LfsPad Kurulumu", "LfsPad Setup");
+                folder.AccessibleName = folderLabel.Text = Ui.T("Live for Speed 0.8C38 klasörü", "Live for Speed 0.8C38 folder");
+                browse.Text = Ui.T("Göz at", "Browse");
+                remove.Text = Ui.T("Kaldır", "Uninstall");
+                license.Text = Ui.T("Üçüncü taraf lisansları", "Third-party licenses");
+                RefreshActions();
+            };
             browse.Click += delegate { ChooseFolder(); };
             install.Click += async delegate { await Apply(false); };
             remove.Click += async delegate { await Apply(true); };
@@ -150,7 +171,7 @@ namespace LfsPadSetup
         {
             using (var dialog = new FolderBrowserDialog())
             {
-                dialog.Description = "LFS.exe dosyasının bulunduğu klasörü seç.";
+                dialog.Description = Ui.T("LFS.exe dosyasının bulunduğu klasörü seç.", "Choose the folder containing LFS.exe.");
                 dialog.ShowNewFolderButton = false;
                 if (Directory.Exists(folder.Text))
                     dialog.SelectedPath = folder.Text;
@@ -164,11 +185,11 @@ namespace LfsPadSetup
             string root = folder.Text.Trim();
             bool valid = HasGame(root);
             bool installed = valid && HasInstallation(root);
-            folder.Enabled = browse.Enabled = !busy;
+            language.Enabled = folder.Enabled = browse.Enabled = !busy;
             install.Enabled = valid && !busy;
             remove.Enabled = installed && !busy;
-            install.Text = installed ? "Güncelle" : "Kur";
-            status.Text = valid ? "Kurulumdan önce LFS’yi kapat." : "LFS.exe’nin bulunduğu klasörü seç.";
+            install.Text = installed ? Ui.T("Güncelle", "Update") : Ui.T("Kur", "Install");
+            status.Text = valid ? Ui.T("Kurulumdan önce LFS’yi kapat.", "Close LFS before installing.") : Ui.T("LFS.exe’nin bulunduğu klasörü seç.", "Choose the folder containing LFS.exe.");
         }
 
         private async Task Apply(bool uninstall)
@@ -179,14 +200,14 @@ namespace LfsPadSetup
             {
                 string root = Path.GetFullPath(folder.Text.Trim());
                 if (!HasGame(root))
-                    throw new InvalidOperationException("Seçilen klasörde LFS.exe bulunamadı.");
-                if (uninstall && MessageBox.Show(this, "Bu klasördeki LfsPad kaldırılsın mı?",
+                    throw new InvalidOperationException(Ui.T("Seçilen klasörde LFS.exe bulunamadı.", "LFS.exe was not found in the selected folder."));
+                if (uninstall && MessageBox.Show(this, Ui.T("Bu klasördeki LfsPad kaldırılsın mı?", "Uninstall LfsPad from this folder?"),
                     "LfsPad", MessageBoxButtons.YesNo, MessageBoxIcon.Question,
                     MessageBoxDefaultButton.Button2) != DialogResult.Yes)
                     return;
                 busy = true;
                 RefreshActions();
-                status.Text = uninstall ? "LfsPad kaldırılıyor…" : HasInstallation(root) ? "LfsPad güncelleniyor…" : "LfsPad kuruluyor…";
+                status.Text = uninstall ? Ui.T("LfsPad kaldırılıyor…", "Uninstalling LfsPad…") : HasInstallation(root) ? Ui.T("LfsPad güncelleniyor…", "Updating LfsPad…") : Ui.T("LfsPad kuruluyor…", "Installing LfsPad…");
                 UseWaitCursor = true;
                 string result = await Task.Run(() => RunOperation(root, uninstall));
                 busy = false;
@@ -197,7 +218,7 @@ namespace LfsPadSetup
             {
                 busy = false;
                 RefreshActions();
-                status.Text = "İşlem tamamlanamadı.";
+                status.Text = Ui.T("İşlem tamamlanamadı.", "The operation could not be completed.");
                 MessageBox.Show(this, exception.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             finally
@@ -210,7 +231,7 @@ namespace LfsPadSetup
         {
             var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(name);
             if (stream == null)
-                throw new InvalidOperationException("Kurulum dosyası eksik. EXE’yi yeniden indir.");
+                throw new InvalidOperationException(Ui.T("Kurulum dosyası eksik. EXE’yi yeniden indir.", "The setup file is incomplete. Download it again."));
             return stream;
         }
 
@@ -222,7 +243,7 @@ namespace LfsPadSetup
                 using (var reader = new StreamReader(GetResource(file)))
                     text.AppendLine(file).AppendLine().AppendLine(reader.ReadToEnd()).AppendLine();
             }
-            using (var dialog = new Form { Text = "Üçüncü taraf lisansları",
+            using (var dialog = new Form { Text = Ui.T("Üçüncü taraf lisansları", "Third-party licenses"),
                                            StartPosition = FormStartPosition.CenterParent,
                                            ClientSize = new Size(590, 450) })
             {
@@ -255,7 +276,7 @@ namespace LfsPadSetup
         {
             bool update = !uninstall && HasInstallation(root);
             if (root.IndexOfAny(Path.GetInvalidPathChars()) >= 0 || root.Contains("\""))
-                throw new InvalidOperationException("Oyun klasörünün yolu geçersiz.");
+                throw new InvalidOperationException(Ui.T("Oyun klasörünün yolu geçersiz.", "The game folder path is invalid."));
             string staging = Path.Combine(Path.GetTempPath(), "LfsPadSetup-" + Guid.NewGuid().ToString("N"));
             string tools = Path.Combine(staging, "tools");
             string scriptName = uninstall ? "uninstall.ps1" : "install.ps1";
@@ -272,6 +293,8 @@ namespace LfsPadSetup
                 {
                     Extract("dinput8.dll", dll);
                     Extract("LfsPad.ini", ini);
+                    if (Ui.English)
+                        File.WriteAllText(ini, File.ReadAllText(ini).Replace("Language=tr", "Language=en"));
                 }
                 string powershell = Path.Combine(Environment.SystemDirectory,
                     @"WindowsPowerShell\v1.0\powershell.exe");
@@ -298,19 +321,19 @@ namespace LfsPadSetup
                     {
                         string detail = errors.Result.Trim();
                         if (detail.Contains("Close LFS before"))
-                            detail = "LFS açık. Oyunu kapatıp tekrar dene.";
+                            detail = Ui.T("LFS açık. Oyunu kapatıp tekrar dene.", "Close LFS and try again.");
                         else if (detail.Contains("Only the verified 0.8C38"))
-                            detail = "Bu klasörde farklı bir LFS sürümü var. LFS 0.8C38’in kurulu olduğu klasörü seç.";
+                            detail = Ui.T("Bu klasörde farklı bir LFS sürümü var. LFS 0.8C38’in kurulu olduğu klasörü seç.", "Select the folder containing LFS 0.8C38.");
                         if (detail.Length == 0)
-                            detail = "Kurulum betiği hata koduyla kapandı (" + process.ExitCode + ").";
+                            detail = Ui.T("Kurulum betiği hata koduyla kapandı (", "Setup returned error code (") + process.ExitCode + ").";
                         throw new InvalidOperationException(detail);
                     }
                     if (uninstall)
-                        return "LfsPad kaldırıldı.";
+                        return Ui.T("LfsPad kaldırıldı.", "LfsPad has been uninstalled.");
                     if (output.Result.Contains("already installed"))
-                        return "Bu LfsPad sürümü zaten kurulu.";
-                    return update ? "LfsPad güncellendi. LFS’yi açabilirsin." :
-                                    "LfsPad kuruldu. LFS’yi açabilirsin.";
+                        return Ui.T("Bu LfsPad sürümü zaten kurulu.", "This version is already installed.");
+                    return update ? Ui.T("LfsPad güncellendi. LFS’yi açabilirsin.", "LfsPad has been updated. You can start LFS.") :
+                                    Ui.T("LfsPad kuruldu. LFS’yi açabilirsin.", "LfsPad is installed. You can start LFS.");
                 }
             }
             finally

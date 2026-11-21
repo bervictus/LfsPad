@@ -15,6 +15,15 @@ void check(bool b, const char *label) {
 }
 int main() {
   using namespace pad;
+  check(parseLanguage(languageKey(Language::English)) == Language::English &&
+            parseLanguage(L"") == Language::Turkish, "saved and legacy language settings");
+  check(keyboardRows(Language::English, false, false)[1] == L"qwertyuiop" &&
+            keyboardRows(Language::Turkish, true, false)[2] == L"ASDFGHJKLŞİ",
+        "English and Turkish keyboard layouts");
+  for (const auto &menu : shortcutMenus)
+    for (int i = 0; i < menu.count; ++i)
+      check(menu.targets[i].label.english && menu.targets[i].label.turkish,
+            "shortcut labels available in both languages");
   const unsigned char stateDatagram[28]{7, 5, 1};
   const unsigned char batchedDatagram[]{1, 3, 1, 0, 2, 64, 1, 0, 3, 0, 0, 0};
   const unsigned char zeroPacket[]{0, 0, 0, 0};

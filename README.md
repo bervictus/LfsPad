@@ -1,10 +1,12 @@
 # LfsPad
 
+**Türkçe** · [English](README.en.md)
+
 LfsPad ile Live for Speed’de tek oyunculu bir yarış açabilir, garajda arabanı ayarlayıp piste dönebilirsin. Menüleri kontrolcüyle kullanırsın. Mod oyunla birlikte açılır.
 
 ## Kurulum ve kaldırma
 
-1. LFS’yi kapat ve [Windows kurulum dosyasını indir](https://github.com/bervictus/LfsPad/releases/download/v0.1.1/LfsPad-0.1.1-setup.exe).
+1. LFS’yi kapat ve [Windows kurulum dosyasını indir](https://github.com/bervictus/LfsPad/releases/download/v0.1.2/LfsPad-0.1.2-setup.exe).
 2. Kurulumda `LFS.exe` dosyasının bulunduğu klasörü seç.
 3. **Kur**’a bas ve oyunu aç. LfsPad zaten kuruluysa **Güncelle**’ye bas. Tuş atamaların ve diğer ayarların korunur.
 
@@ -24,6 +26,10 @@ Mod **Windows için Live for Speed 0.8C38’in 32 bit sürümüne** göre hazır
 | PS1 ve PS2 kolları | Tuşları ve analogları Windows’a tanıtan uyumlu bir USB adaptörü gerekiyor. |
 
 F710’u oyunda denedik. PlayStation tuşlarını ve tetiklerini sanal cihazlarla kontrol ettik. Gerçek PlayStation kollarıyla USB ve Bluetooth denemeleri henüz yapılmadı. [Test notları](VALIDATION.md)
+
+## Dil seçimi
+
+Kurucunun sağ üstünden **Türkçe** veya **English** seç. Oyun içinde iki tetiği birlikte tut, ikinci satırdaki **Dil** seçeneğini sağ/sol ile değiştir ve A ile kaydet. Ekran klavyesi de seçtiğin dile geçer.
 
 ## Menüde ilk tur
 
