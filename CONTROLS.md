@@ -2,6 +2,8 @@
 
 [Türkçe](KONTROLLER.md) · **English**
 
+The **Controller icons** setting shows or hides the routine corner prompts. Binding, shortcut and confirmation prompts still use plain text when icons are off.
+
 ## Menus and text entry
 
 | Action | Default control |

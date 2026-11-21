@@ -6,7 +6,7 @@ Use a controller to start a race, change your setup in the garage and get back o
 
 ## Install or update
 
-1. Close LFS and [download the Windows installer](https://github.com/bervictus/LfsPad/releases/download/v0.1.5/LfsPad-0.1.5-setup.exe).
+1. Close LFS and [download the Windows installer](https://github.com/bervictus/LfsPad/releases/download/v0.1.6/LfsPad-0.1.6-setup.exe).
 2. Choose **English** or **Türkçe** at the top right. Select the folder containing `LFS.exe`.
 3. Click **Install**, or **Update** if LfsPad is already installed. Then launch LFS as usual.
 
@@ -30,7 +30,7 @@ Hold both triggers in a menu to open LfsPad settings. The second row changes the
 
 The F710 has been tested in LFS. PlayStation input has been tested with virtual controllers. Physical USB and Bluetooth tests are pending.
 
-Controller icons and hints appear without a panel in both bottom corners. In LFS **Options → Controls**, select a driving action's controller binding, then press a D-pad direction to assign it.
+Controller icons and hints appear in both bottom corners. Hold **LT + RT**, change **Controller icons**, and press **A** to save. In LFS **Options → Controls**, select a driving action's controller binding, then press a D-pad direction to assign it.
 
 ## Separate throttle and brake
 

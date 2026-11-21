@@ -166,6 +166,7 @@ struct Config {
   bool diagnostics = false;
   int quickButton = 1;
   bool inputMonitor = false;
+  bool controllerIcons = true;
   int rumbleStrength = 50;
   ShortcutMappings shortcuts;
 } cfg;
@@ -213,7 +214,7 @@ static const char *bindingName(Action a) {
   return buttonCaption(cfg.bindings[a]);
 }
 enum SettingRow {
-  controllerSetting, languageSetting, deadzoneSetting, cursorSpeedSetting,
+  controllerSetting, languageSetting, controllerIconsSetting, deadzoneSetting, cursorSpeedSetting,
   firstBindingSetting, quickMenuSetting = firstBindingSetting + 9,
   monitorSetting, shortcutSetting, rumbleSetting, settingCount
 };
@@ -259,6 +260,8 @@ static void loadConfig() {
   diagnosticsEnabled = cfg.diagnostics;
   cfg.quickButton = std::clamp(int(GetPrivateProfileIntW(
       L"Input", L"QuickMenu", 1, ini.c_str())), 0, 3);
+  cfg.controllerIcons =
+      GetPrivateProfileIntW(L"Input", L"ControllerIcons", 1, ini.c_str()) != 0;
   cfg.inputMonitor =
       GetPrivateProfileIntW(L"Input", L"InputMonitor", 0, ini.c_str()) != 0;
   cfg.rumbleStrength = std::clamp(int(GetPrivateProfileIntW(
@@ -298,6 +301,7 @@ static bool saveConfig() {
   put(L"CursorSpeed", int(cfg.cursorSpeed));
   put(L"QuickMenu", cfg.quickButton);
   put(L"InputMonitor", cfg.inputMonitor);
+  put(L"ControllerIcons", cfg.controllerIcons);
   put(L"RumbleStrength", cfg.rumbleStrength);
   for (int i = 0; i < 9; ++i)
     put(bindingKeys[i], cfg.bindings[i]);
@@ -965,6 +969,31 @@ static void drawButtonGlyph(float x, float y, int button,
   }
 }
 
+// On-demand instructions still identify the necessary button in plain text
+// when the player hides the routine icon overlay.
+static const char *hudButtonCaption(int button) {
+  switch (button) {
+  case PadLT: return playStationCaptions ? "L2" : "LT";
+  case PadRT: return playStationCaptions ? "R2" : "RT";
+  case PadDirections: return "D-pad";
+  case PadLeftStick: return text("Sol analog", "Left stick");
+  case PadRightStick: return text("Sağ analog", "Right stick");
+  default: return buttonCaption(button);
+  }
+}
+
+static float hudButtonWidth(int button) {
+  return cfg.controllerIcons ? glyphWidth(button)
+                             : ImGui::CalcTextSize(hudButtonCaption(button)).x;
+}
+
+static void drawHudButton(float x, float y, int button, ImU32 colour) {
+  if (cfg.controllerIcons)
+    drawButtonGlyph(x, y, button, colour);
+  else
+    hudLabel(x, y + (22 - ImGui::GetFontSize()) * .5f, hudButtonCaption(button), colour);
+}
+
 struct HudHint {
   int button;
   const char *action;
@@ -987,9 +1016,9 @@ static void drawCornerHints(float width, float height, bool right,
       continue;
     float w = ImGui::CalcTextSize(hint.action).x;
     if (hint.button >= 0)
-      w += glyphWidth(hint.button) + 4;
+      w += hudButtonWidth(hint.button) + 4;
     if (hint.second >= 0)
-      w += glyphWidth(hint.second) + 4;
+      w += hudButtonWidth(hint.second) + 4;
     if (widths[row] > 0 && widths[row] + gap + w > budget)
       ++row;
     offsets[i] = widths[row] > 0 ? widths[row] + gap : 0;
@@ -1034,8 +1063,8 @@ static void drawCornerHints(float width, float height, bool right,
     const float top = chosen + r * lineHeight;
     for (int button : {hint.button, hint.second}) {
       if (button >= 0) {
-        drawButtonGlyph(x, top, button, hint.colour);
-        x += glyphWidth(button) + 4;
+        drawHudButton(x, top, button, hint.colour);
+        x += hudButtonWidth(button) + 4;
       }
     }
     hudLabel(x, top + (22 - ImGui::GetFontSize()) * .5f, hint.action, hint.colour);
@@ -1142,6 +1171,9 @@ static void adjustSetting(int direction) {
   case languageSetting:
     cfg.language = cfg.language == Language::English ? Language::Turkish : Language::English;
     break;
+  case controllerIconsSetting:
+    cfg.controllerIcons = !cfg.controllerIcons;
+    break;
   case deadzoneSetting:
     cfg.deadzone = std::clamp(cfg.deadzone + direction * .01f, .1f, .45f);
     break;
@@ -1233,6 +1265,8 @@ static void drawSettings(float l, float t, float w) {
   else
     std::snprintf(values[controllerSetting], 80, "%s", text("Kontrolcü: Otomatik", "Controller: Auto"));
   std::snprintf(values[languageSetting], 100, "%s", text("Dil: Türkçe", "Language: English"));
+  std::snprintf(values[controllerIconsSetting], 100, text("Kontrolcü simgeleri: %s", "Controller icons: %s"),
+                cfg.controllerIcons ? text("Açık", "On") : text("Kapalı", "Off"));
   std::snprintf(values[deadzoneSetting], 80, text("Analog ölü bölgesi: %d%%", "Stick deadzone: %d%%"),
                 int(cfg.deadzone * 100 + .5f));
   std::snprintf(values[cursorSpeedSetting], 80, text("İmleç hızı: %.0f", "Cursor speed: %.0f"), cfg.cursorSpeed);
@@ -1390,13 +1424,15 @@ static void drawInputMeter(float width, float y, const XINPUT_GAMEPAD &gamepad,
   std::snprintf(direction, sizeof(direction), "D-pad  %s", pov);
   hudLabel(right, y + 94, direction, povMoved ? meterActive : meterMuted);
 
-  std::uint16_t rawDown = 0;
-  for (int i = 0; i < 10; ++i)
-    if (raw & physical[meterButtonOrder[i]])
-      rawDown |= 1u << i;
-  drawMeterButtons(left, y + 114, column, connected ? 0x3ff : 0, rawDown, 0);
-  drawMeterButtons(right, y + 114, column, sample.buttonsAvailable,
-                   sample.buttonsDown, sample.buttonsSuppressed);
+  if (cfg.controllerIcons) {
+    std::uint16_t rawDown = 0;
+    for (int i = 0; i < 10; ++i)
+      if (raw & physical[meterButtonOrder[i]])
+        rawDown |= 1u << i;
+    drawMeterButtons(left, y + 114, column, connected ? 0x3ff : 0, rawDown, 0);
+    drawMeterButtons(right, y + 114, column, sample.buttonsAvailable,
+                     sample.buttonsDown, sample.buttonsSuppressed);
+  }
 }
 static void drawQuickMenu(float width, float height, QuickAction selection) {
   const float w = std::min(390.f, width - 24), l = (width - w) * .5f;
@@ -1439,6 +1475,10 @@ static void drawReplay(float width, float height, const ReplayState &replay) {
   else
     std::snprintf(clock, sizeof(clock), "%u:%02u / %u:%02u",
                   now / 60, now % 60, total / 60, total % 60);
+  if (!cfg.controllerIcons) {
+    drawCornerHints(width, height, true, {{-1, clock}});
+    return;
+  }
   drawCornerHints(width, height, false, {
       {cfg.bindings[Confirm], replay.paused ? text("Oynat", "Play") : text("Duraklat", "Pause")},
       {cfg.bindings[Back], text("Menü", "Menu")}});
@@ -1492,14 +1532,14 @@ static void drawFinishHold(const Item &item, float width, double now) {
     return;
   auto button = pixel(item.rect.l, item.rect.t);
   const auto *hint = text("Yarışı bitirmek için basılı tut", "Hold to end the race");
-  const auto glyph = glyphWidth(cfg.bindings[Confirm]);
-  const float w = std::min(glyph + ImGui::CalcTextSize(hint).x + 30, width - 20);
+  const float buttonWidth = hudButtonWidth(cfg.bindings[Confirm]);
+  const float w = std::min(buttonWidth + ImGui::CalcTextSize(hint).x + 30, width - 20);
   const float left = std::clamp(button.x, 10.f, std::max(10.f, width - w - 10));
   const float top = std::max(10.f, button.y - 54);
   auto draw = ImGui::GetForegroundDrawList();
   draw->PushClipRect({left, top}, {left + w, top + 44}, true);
-  drawButtonGlyph(left + 12, top + 4, cfg.bindings[Confirm]);
-  hudLabel(left + 16 + glyph, top + 6, hint);
+  drawHudButton(left + 12, top + 4, cfg.bindings[Confirm], IM_COL32(245, 245, 245, 255));
+  hudLabel(left + 16 + buttonWidth, top + 6, hint);
   const float right = left + w - 12;
   draw->AddRectFilled({left + 12, top + 34}, {right, top + 38},
                       IM_COL32(75, 87, 100, 255), 2);
@@ -2471,7 +2511,7 @@ void frame(IDXGISwapChain *swap) {
       } else if (!connected && !cfg.diagnostics) {
         drawCornerHints(width, height, false,
                         {{-1, text("Kontrolcü bekleniyor", "Waiting for controller")}});
-      } else if (garageViewer && !cursorMode) {
+      } else if (cfg.controllerIcons && garageViewer && !cursorMode) {
         drawCornerHints(width, height, false, {
             {cfg.bindings[Back], text("Garaja dön", "Back to garage")},
             {cfg.bindings[CursorMode], text("İmleç", "Cursor")}});
@@ -2479,12 +2519,12 @@ void frame(IDXGISwapChain *swap) {
           drawCornerHints(width, height, true, {
               {PadRightStick, text("Döndür", "Rotate")},
               {PadLT, text("Yakınlaştır", "Zoom"), PadRT}});
-      } else if (adjustingSlider) {
+      } else if (cfg.controllerIcons && adjustingSlider) {
         drawCornerHints(width, height, false, {{PadLeft, text("Değiştir", "Adjust"), PadRight}});
         drawCornerHints(width, height, true, {
             {cfg.bindings[Confirm], text("Bitir", "Finish")},
             {cfg.bindings[Back], text("Geri", "Back")}});
-      } else {
+      } else if (cfg.controllerIcons) {
         drawCornerHints(width, height, false, {
             {cfg.bindings[Confirm], cursorMode ? text("Tıkla", "Click") : text("Seç", "Select")},
             {cfg.bindings[Back], text("Geri", "Back")},

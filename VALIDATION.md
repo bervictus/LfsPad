@@ -1,5 +1,11 @@
 # LfsPad test notları
 
+## LfsPad 0.1.6
+
+- Ayrı bir LFS 0.8C38 kopyasında **Kontrolcü simgeleri** ayarı kapatılıp kaydedildi. İki köşe ipucu gizlendi ve INI dosyasında değer 0 olarak görüldü. Kısayollar açıldığında tuş adları yazıyla gösterildi.
+- Simgeleri tekrar açma işlemi iptal edildiğinde kayıtlı **Kapalı** değeri korundu. **Açık** seçimi kaydedildiğinde iki köşedeki simgeler yeniden göründü.
+- Çekirdek ve kontrolcü testleriyle 45 kurulum kontrolü geçti.
+
 ## LfsPad 0.1.5
 
 - LFS 0.8C38’in kendi Kontroller ekranında dört D-pad yönü DirectInput tanılama girdisiyle denendi. Her yön tuş bekleme ekranını tamamladı. Açan tuşun bırakılmasına kadar girdiyi süzen geçiş ve dört yönün LfsPad menü atamalarında kullanılabilmesi otomatik olarak sınandı.

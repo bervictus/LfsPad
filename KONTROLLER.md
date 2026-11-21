@@ -4,6 +4,8 @@
 
 Menüde iki tetiği birlikte tut. **Dil** satırını sağ/sol ile değiştir, A ile kaydet veya B ile vazgeç.
 
+**Kontrolcü simgeleri** satırı, köşelerdeki normal tuş ipuçlarını açar veya kapatır. Kapatınca atama, kısayol ve onay gibi anlık yönlendirmeler yazıyla görünür.
+
 ## Menüde hangi tuşu kullanacağım?
 
 | Yapmak istediğin | Varsayılan tuş |
