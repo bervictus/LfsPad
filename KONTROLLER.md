@@ -39,9 +39,11 @@ Bir hedefi başka bir yöne verirsen iki kısayol yer değiştirir. Bir yönü b
 
 ## Tuşları değiştirmek
 
-Menüde **LT + RT**’yi yaklaşık yarım saniye basılı tut. Değiştirmek istediğin görevin üzerine gel ve **X**’e bas. Tuşları bırak, sonra kullanmak istediğin tuşa bas. Vazgeçersen D-pad’de sola bas. Tuşları D-pad sol/sağ ile listeden de seçebilirsin.
+Menüde **LT + RT**’yi yaklaşık yarım saniye basılı tut. Değiştirmek istediğin görevin üzerine gel ve **X**’e bas. Tuşları bırak, sonra kullanmak istediğin tuşa bas. Vazgeçersen iki tetiğe birlikte bas. Tuşları D-pad sol/sağ ile listeden de seçebilirsin.
 
-Dokuz menü görevine A, B, X, Y, LB, RB, Start, Back, R3 veya L3 atayabilirsin. Seçtiğin tuş başka bir görevdeyse iki görev tuş değiştirir. Ayarlar ekranında fiziksel **A** her zaman kaydeder, **B** değişiklikleri iptal eder. Kontrolcü seçimini kaydetmek için seçtiğin kolun bağlı olması gerekir.
+Dokuz menü görevine A, B, X, Y, LB, RB, Start, Back, R3, L3 veya dört D-pad yönünden birini atayabilirsin. Menüde bu yön bir eyleme ayrıldığında gezinmek için sol analogu kullan. Seçtiğin tuş başka bir görevdeyse iki görev tuş değiştirir. Ayarlar ekranında fiziksel **A** her zaman kaydeder, **B** değişiklikleri iptal eder. Kontrolcü seçimini kaydetmek için seçtiğin kolun bağlı olması gerekir.
+
+**Sürüş tuşları** için LFS’nin kendi **Seçenekler → Kontroller → Tuş takımı 1 / 2** ekranına git. Atamak istediğin işlevin kontrolcü tuşu kutusunu seç, açan tuşu bırak ve istediğin D-pad yönüne bas. Atama sırasında D-pad girdisini LFS alır.
 
 ## Garaj, listeler ve yazı alanları
 
@@ -76,7 +78,7 @@ OutSim’i kendin ayarlıyorsan `cfg.txt` içinde `OutSim Mode` için 1 veya 2, 
 
 ## Kolun gönderdiği girdiyi görmek
 
-**LT + RT** ile ayarları aç. **Canlı giriş göstergesi**’ni açıp A ile kaydet. Sol sütunda kolun direksiyonu, tetikleri ve tuşları, sağda LFS’nin okuduğu değerler görünür. Ayrı gaz ve fren eksenleri yoksa **Ortak Z** görünür. Turuncu çerçeveli bir tuşa bastığında LfsPad o basışı oyuna iletmez. Birden çok cihaz bağlıysa veya oyun henüz veri okumadıysa sağ sütunda bunu belirten bir mesaj görürsün. Göstergeyi aynı ayardan kapatabilirsin. [XInput ve DirectInput eşlemesi](https://learn.microsoft.com/en-us/windows/win32/xinput/directinput-and-xusb-devices)
+**LT + RT** ile ayarları aç. **Canlı giriş göstergesi**’ni açıp A ile kaydet. Sol alt köşede kolun direksiyonu, tetikleri ve tuşları, sağ alt köşede LFS’nin okuduğu değerler görünür. Simgelerin arkasında kutu bulunmaz. Ayrı gaz ve fren eksenleri yoksa **Ortak Z** görünür. Turuncu çerçeveli bir tuşa bastığında LfsPad o basışı oyuna iletmez. Birden çok cihaz bağlıysa veya oyun henüz veri okumadıysa sağ sütunda bunu belirten bir mesaj görürsün. Göstergeyi aynı ayardan kapatabilirsin. [XInput ve DirectInput eşlemesi](https://learn.microsoft.com/en-us/windows/win32/xinput/directinput-and-xusb-devices)
 
 ## Geliştirme kısayolları
 

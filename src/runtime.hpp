@@ -12,6 +12,7 @@ namespace pad {
 extern HMODULE self;
 extern std::atomic<bool> captureButtons;
 extern std::atomic<bool> captureRaceAxes;
+extern std::atomic<unsigned> diagnosticDrivingPov;
 extern std::atomic<unsigned> captureQuickInput;
 extern std::atomic<bool> monitorInput;
 extern std::atomic<int> pedalSlot;

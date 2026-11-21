@@ -103,6 +103,7 @@ static LRESULT CALLBACK windowProc(HWND h, UINT message, WPARAM w, LPARAM l) {
     releaseMouse();
     captureButtons.store(false);
     captureRaceAxes.store(false);
+    diagnosticDrivingPov.store(0xffffffff);
     captureQuickInput.store(0);
     monitorInput.store(false);
     pedalSlot.store(-1);
@@ -117,6 +118,7 @@ static LRESULT CALLBACK windowProc(HWND h, UINT message, WPARAM w, LPARAM l) {
     releaseMouse();
     captureButtons.store(false);
     captureRaceAxes.store(false);
+    diagnosticDrivingPov.store(0xffffffff);
     captureQuickInput.store(0);
     monitorInput.store(false);
     pedalSlot.store(-1);
@@ -140,6 +142,7 @@ static std::vector<Item> items;
 static int mainMenuInitial = -1, raceFinishItem = -1, raceResumeItem = -1;
 static int optionsInitial = -1;
 static bool pedalCalibration = false;
+static bool nativeButtonAssignment = false;
 static unsigned mainMenuSelection = 5;
 static std::uint32_t screenStamp = 0;
 static ButtonGate gate;
@@ -180,14 +183,24 @@ enum Action {
   SettingsModifier,
   CursorMode
 };
-static constexpr std::array<std::uint16_t, 10> physical = {
+enum PadButton { PadA, PadB, PadX, PadY, PadLB, PadRB, PadStart, PadBack, PadR3,
+                 PadL3, PadUp, PadDown, PadLeft, PadRight, PadLT, PadRT, PadDirections, PadLeftStick, PadRightStick };
+static constexpr std::array<std::uint16_t, PadRight + 1> physical = {
     XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_Y,
     XINPUT_GAMEPAD_LEFT_SHOULDER, XINPUT_GAMEPAD_RIGHT_SHOULDER,
     XINPUT_GAMEPAD_START, XINPUT_GAMEPAD_BACK, XINPUT_GAMEPAD_RIGHT_THUMB,
-    XINPUT_GAMEPAD_LEFT_THUMB};
+    XINPUT_GAMEPAD_LEFT_THUMB, XINPUT_GAMEPAD_DPAD_UP, XINPUT_GAMEPAD_DPAD_DOWN,
+    XINPUT_GAMEPAD_DPAD_LEFT, XINPUT_GAMEPAD_DPAD_RIGHT};
+static constexpr std::uint16_t dpad = XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_DOWN |
+                                      XINPUT_GAMEPAD_DPAD_LEFT | XINPUT_GAMEPAD_DPAD_RIGHT;
 static const char *buttonNames[] = {"A",  "B",     "X",    "Y",  "LB",
                                     "RB", "Start", "Back", "R3", "L3"};
 static const char *buttonCaption(int index) {
+  if (index >= PadUp) {
+    const char *directions[] = {text("D-pad ↑", "D-pad ↑"), text("D-pad ↓", "D-pad ↓"),
+                                text("D-pad ←", "D-pad ←"), text("D-pad →", "D-pad →")};
+    return directions[index - PadUp];
+  }
   const char *playStationButtons[] = {text("Çarpı", "Cross"), text("Daire", "Circle"), text("Kare", "Square"), text("Üçgen", "Triangle"), "L1",
                                            "R1", "Options", "Select", "R3", "L3"};
   return playStationCaptions ? playStationButtons[index] : buttonNames[index];
@@ -238,7 +251,7 @@ static void loadConfig() {
   for (int i = 0; i < 9; ++i) {
     int b = std::clamp(
         (int)GetPrivateProfileIntW(L"Input", bindingKeys[i], i, ini.c_str()), 0,
-        9);
+        int(physical.size()) - 1);
     rebind(cfg.bindings, i, b);
   }
   cfg.diagnostics =
@@ -315,7 +328,7 @@ static bool gather(uintptr_t modal, bool inGarageMode) {
   garageSkinPrefix = garageSkinName = 0;
   mainMenuInitial = -1;
   optionsInitial = -1;
-  pedalCalibration = false;
+  pedalCalibration = nativeButtonAssignment = false;
   raceFinishItem = -1;
   raceResumeItem = -1;
   bool raceMenu = false;
@@ -373,6 +386,8 @@ static bool gather(uintptr_t modal, bool inGarageMode) {
     if (active && n.owner == modal && callback == 0x10aba0 && n.type == 0 &&
         n.value == 5)
       pedalCalibration = true;
+    if (active && n.owner == modal && n.type == 0 && callback == 0x10abc0)
+      nativeButtonAssignment = true;
     if (garageRoot && n.type == 0 && callback == 0xb1780 && n.value == 1)
       garageViewerItem = int(items.size());
     if (garageRoot && n.type == 0 && callback == 0x141340)
@@ -870,6 +885,164 @@ static void label(float x, float y, const char *s,
                   ImU32 col = IM_COL32(245, 245, 245, 255)) {
   ImGui::GetForegroundDrawList()->AddText({x, y}, col, s);
 }
+static void hudLabel(float x, float y, const char *value,
+                     ImU32 colour = IM_COL32(245, 245, 245, 255)) {
+  label(x + 1, y + 1, value, IM_COL32(0, 0, 0, 240));
+  label(x - 1, y + 1, value, IM_COL32(0, 0, 0, 185));
+  label(x, y, value, colour);
+}
+
+static float glyphWidth(int button) {
+  return (button >= PadLB && button <= PadL3) || button == PadLT ||
+         button == PadRT ? 32.f : 24.f;
+}
+
+static void drawButtonGlyph(float x, float y, int button,
+                            ImU32 colour = IM_COL32(245, 245, 245, 255)) {
+  auto *draw = ImGui::GetForegroundDrawList();
+  const float w = glyphWidth(button);
+  const ImVec2 c{x + w * .5f, y + 11};
+  constexpr ImU32 shadow = IM_COL32(0, 0, 0, 225);
+  const auto line = [&](ImVec2 a, ImVec2 b) {
+    draw->AddLine(a, b, shadow, 4);
+    draw->AddLine(a, b, colour, 1.5f);
+  };
+  const auto circle = [&](float radius) {
+    draw->AddCircle(c, radius, shadow, 24, 4);
+    draw->AddCircle(c, radius, colour, 24, 1.5f);
+  };
+  const auto caption = [&](const char *value) {
+    const auto size = ImGui::CalcTextSize(value);
+    hudLabel(c.x - size.x * .5f, c.y - size.y * .5f, value, colour);
+  };
+  if (button <= PadY) {
+    if (!playStationCaptions) {
+      circle(9);
+      caption(buttonNames[button]);
+    } else if (button == PadA) {
+      line({c.x - 6, c.y - 6}, {c.x + 6, c.y + 6});
+      line({c.x + 6, c.y - 6}, {c.x - 6, c.y + 6});
+    } else if (button == PadB) {
+      circle(7);
+    } else if (button == PadX) {
+      draw->AddRect({c.x - 6, c.y - 6}, {c.x + 6, c.y + 6}, shadow, 0, 0, 4);
+      draw->AddRect({c.x - 6, c.y - 6}, {c.x + 6, c.y + 6}, colour, 0, 0, 1.5f);
+    } else {
+      const ImVec2 a{c.x, c.y - 7}, b{c.x + 7, c.y + 6}, d{c.x - 7, c.y + 6};
+      draw->AddTriangle(a, b, d, shadow, 4);
+      draw->AddTriangle(a, b, d, colour, 1.5f);
+    }
+  } else if (button == PadDirections || (button >= PadUp && button <= PadRight)) {
+    const ImVec2 cross[]{{c.x-4,c.y-9},{c.x+4,c.y-9},{c.x+4,c.y-4},
+        {c.x+9,c.y-4},{c.x+9,c.y+4},{c.x+4,c.y+4},{c.x+4,c.y+9},
+        {c.x-4,c.y+9},{c.x-4,c.y+4},{c.x-9,c.y+4},{c.x-9,c.y-4},{c.x-4,c.y-4}};
+    draw->AddPolyline(cross, 12, shadow, ImDrawFlags_Closed, 4);
+    draw->AddPolyline(cross, 12, colour, ImDrawFlags_Closed, 1.4f);
+    if (button != PadDirections) {
+      static constexpr ImVec2 tips[]{{0,-6},{0,6},{-6,0},{6,0}};
+      const auto tip = tips[button - PadUp];
+      draw->AddCircleFilled({c.x + tip.x, c.y + tip.y}, 2, colour, 10);
+    }
+  } else if (button == PadLeftStick || button == PadRightStick) {
+    circle(9);
+    caption(button == PadLeftStick ? "L" : "R");
+  } else {
+    const ImVec2 a{x + 2, y + 2}, b{x + w - 2, y + 20};
+    draw->AddRect(a, b, shadow, 5, 0, 4);
+    draw->AddRect(a, b, colour, 5, 0, 1.3f);
+    if (button == PadStart) {
+      for (int i = -1; i <= 1; ++i)
+        line({c.x - 5, c.y + i * 3}, {c.x + 5, c.y + i * 3});
+    } else if (button == PadBack) {
+      draw->AddRect({c.x - 6, c.y - 2}, {c.x + 2, c.y + 4}, colour);
+      draw->AddRect({c.x - 2, c.y - 4}, {c.x + 6, c.y + 2}, colour);
+    } else if (button == PadLT || button == PadRT) {
+      caption(button == PadLT ? (playStationCaptions ? "L2" : "LT")
+                             : (playStationCaptions ? "R2" : "RT"));
+    } else {
+      caption(buttonCaption(button));
+    }
+  }
+}
+
+struct HudHint {
+  int button;
+  const char *action;
+  int second = -1;
+  ImU32 colour = IM_COL32(245, 245, 245, 255);
+};
+
+static void drawCornerHints(float width, float height, bool right,
+                            std::initializer_list<HudHint> hints) {
+  constexpr float gap = 13, margin = 19, lineHeight = 27;
+  const float budget = (width - 3 * margin) * .5f;
+  if (budget < 115)
+    return;
+  std::array<float, 8> widths{}, offsets{};
+  std::array<int, 8> rows{};
+  IM_ASSERT(hints.size() <= rows.size());
+  int row = 0, i = 0;
+  for (const auto &hint : hints) {
+    if (!hint.action)
+      continue;
+    float w = ImGui::CalcTextSize(hint.action).x;
+    if (hint.button >= 0)
+      w += glyphWidth(hint.button) + 4;
+    if (hint.second >= 0)
+      w += glyphWidth(hint.second) + 4;
+    if (widths[row] > 0 && widths[row] + gap + w > budget)
+      ++row;
+    offsets[i] = widths[row] > 0 ? widths[row] + gap : 0;
+    rows[i] = row;
+    widths[row] = offsets[i] + w;
+    ++i;
+  }
+
+  // Keep each group pinned to its side, raising it only if it covers an
+  // actionable game button near the bottom edge.
+  const float groupHeight = (row + 1) * lineHeight;
+  float y = height - margin - groupHeight;
+  float best = std::numeric_limits<float>::infinity(), chosen = y;
+  for (int step = 0; step < 4 && y >= margin; ++step, y -= 40) {
+    float overlap = 0;
+    for (const auto &item : items) {
+      auto a = pixel(item.rect.l, item.rect.t);
+      auto b = pixel(item.rect.r, item.rect.b);
+      for (int r = 0; r <= row; ++r) {
+        const float left = right ? width - margin - widths[r] : margin;
+        const float top = y + r * lineHeight;
+        overlap += std::max(0.f, std::min(left + widths[r], b.x) - std::max(left, a.x)) *
+                   std::max(0.f, std::min(top + 22, b.y) - std::max(top, a.y));
+      }
+    }
+    if (overlap < best) {
+      chosen = y;
+      best = overlap;
+    }
+    if (overlap == 0)
+      break;
+  }
+  i = 0;
+  auto *draw = ImGui::GetForegroundDrawList();
+  draw->PushClipRect({right ? width * .5f : 0, 0},
+                     {right ? width : width * .5f, height}, true);
+  for (const auto &hint : hints) {
+    if (!hint.action)
+      continue;
+    const auto r = rows[i];
+    float x = (right ? std::max(width - margin - widths[r], width * .5f + 2) : margin) + offsets[i++];
+    const float top = chosen + r * lineHeight;
+    for (int button : {hint.button, hint.second}) {
+      if (button >= 0) {
+        drawButtonGlyph(x, top, button, hint.colour);
+        x += glyphWidth(button) + 4;
+      }
+    }
+    hudLabel(x, top + (22 - ImGui::GetFontSize()) * .5f, hint.action, hint.colour);
+  }
+  draw->PopClipRect();
+}
+
 static void panel(float l, float t, float r, float b) {
   auto d = ImGui::GetForegroundDrawList();
   d->AddRectFilled({l, t}, {r, b}, IM_COL32(12, 19, 28, 242), 12);
@@ -877,32 +1050,19 @@ static void panel(float l, float t, float r, float b) {
 }
 static void drawMenuShortcuts(float width, float height, const ResolvedShortcuts &shortcuts,
                               int selection) {
-  const float w = std::min(430.f, width - 24);
-  const float x = (width - w) * .5f, y = height * .14f;
-  panel(x, y, x + w, y + 136);
-  label(x + 14, y + 10, text("MENÜ KISAYOLLARI", "MENU SHORTCUTS"));
-  const float cell = (w - 36) * .5f;
-  const char *arrows[] = {"↑", "↓", "←", "→"};
-  auto *draw = ImGui::GetForegroundDrawList();
-  for (int i = 0; i < int(shortcuts.size()); ++i) {
-    if (!shortcuts[i].label)
-      continue;
-    const float left = x + 14 + (i / 2) * (cell + 8);
-    const float top = y + 38 + (i % 2) * 29;
-    const bool available = shortcuts[i].item >= 0;
-    const bool active = available && shortcuts[i].item == selection;
-    draw->AddRectFilled({left, top}, {left + cell, top + 25},
-                        active ? IM_COL32(35, 110, 94, 255)
-                               : IM_COL32(33, 47, 62, 255), 4);
-    char hint[94];
-    std::snprintf(hint, sizeof(hint), "%s  %s", arrows[i], shortcuts[i].label->get(cfg.language));
-    label(left + 8, top + 3, hint,
-          available ? IM_COL32(245, 245, 245, 255) : IM_COL32(148, 159, 171, 255));
-  }
-  char hint[100];
-  std::snprintf(hint, sizeof(hint), text("%s tuşunu bırak, %s ile aç", "Release %s, then press %s to open"),
-                bindingName(SettingsModifier), bindingName(Confirm));
-  label(x + 14, y + 105, hint);
+  const auto hint = [&](int direction) {
+    const auto &entry = shortcuts[direction];
+    const ImU32 colour = entry.item < 0 ? IM_COL32(151, 160, 171, 240)
+        : entry.item == selection ? IM_COL32(105, 243, 211, 255)
+                                  : IM_COL32(245, 245, 245, 255);
+    return HudHint{PadUp + direction, entry.label ? entry.label->get(cfg.language) : nullptr,
+                   -1, colour};
+  };
+  drawCornerHints(width, height, false, {
+      hint(0), hint(1), {cfg.bindings[SettingsModifier], text("Bırak", "Release")}});
+  drawCornerHints(width, height, true, {
+      hint(2), hint(3), {cfg.bindings[Confirm], text("Aç", "Open")}});
+
 }
 static std::string utf8(const std::wstring &s) {
   int n = WideCharToMultiByte(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0,
@@ -1002,13 +1162,13 @@ static void adjustSetting(int direction) {
     break;
   default:
     int action = settingRow - firstBindingSetting;
-    rebind(cfg.bindings, action, (cfg.bindings[action] + direction + 10) % 10);
+    const int count = int(physical.size());
+    rebind(cfg.bindings, action, (cfg.bindings[action] + direction + count) % count);
     break;
   }
 }
-static constexpr float settingsWidth = 620.f, meterWidth = 450.f,
-                       settingsHeight = 420.f, meterHeight = 260.f,
-                       meterGap = 18.f, meterMargin = 16.f;
+static constexpr float settingsWidth = 620.f, settingsHeight = 420.f;
+static constexpr float meterColumn = 178.f, meterHeight = 160.f, meterMargin = 19.f;
 static void blockMenuInput() {
   gate.blocked = 0xffff;
   stickArmed = false;
@@ -1102,7 +1262,9 @@ static void drawSettings(float l, float t, float w) {
               ? text("Önce basılı tuşları bırak.", "Release the buttons first.")
               : text("Kullanmak istediğin tuşa bas.", "Press the button you want to assign."),
           IM_COL32(255, 210, 90, 255));
-    label(l + 22, t + 374, text("D-pad sol: atamayı iptal et", "D-pad left: cancel assignment"));
+    label(l + 22, t + 374, playStationCaptions
+        ? text("L2 + R2 ile iptal et", "Press L2 + R2 to cancel")
+        : text("LT + RT ile iptal et", "Press LT + RT to cancel"));
   } else if (settingRow == shortcutSetting) {
     char hint[128];
     std::snprintf(hint, sizeof(hint), text("D-pad: seç   %s: kısayolları düzenle   %s: iptal", "D-pad: select   %s: edit shortcuts   %s: cancel"),
@@ -1142,51 +1304,44 @@ static constexpr ImU32 meterActive = IM_COL32(78, 223, 186, 255),
 static constexpr int meterButtonOrder[] = {0, 1, 2, 3, 4, 5, 7, 6, 9, 8};
 static void drawMeterAxis(float x, float y, float width, const char *name,
                           float value, bool available, bool centered) {
-  label(x, y, name, meterMuted);
+  hudLabel(x, y, name, meterMuted);
   char percent[16] = "-";
   if (available)
     std::snprintf(percent, sizeof(percent), "%ld%%", std::lround(value * 100.f));
-  label(x + width - ImGui::CalcTextSize(percent).x, y, percent);
+  hudLabel(x + width - ImGui::CalcTextSize(percent).x, y, percent);
   auto draw = ImGui::GetForegroundDrawList();
-  draw->AddRectFilled({x, y + 21}, {x + width, y + 28},
-                      IM_COL32(48, 64, 80, 255), 3);
+  draw->AddLine({x, y + 18}, {x + width, y + 18}, IM_COL32(0, 0, 0, 210), 4);
+  draw->AddLine({x, y + 18}, {x + width, y + 18}, meterMuted, 1);
   const float neutral = centered ? width * .5f : 0;
   const float amount = value * (centered ? width * .5f : width);
   if (available && amount != 0)
-    draw->AddRectFilled({x + neutral + std::min(0.f, amount), y + 21},
-                        {x + neutral + std::max(0.f, amount), y + 28},
-                        meterActive, 2);
+    draw->AddRectFilled({x + neutral + std::min(0.f, amount), y + 17},
+                        {x + neutral + std::max(0.f, amount), y + 20},
+                        meterActive, 1);
   if (centered)
-    draw->AddLine({x + neutral, y + 20}, {x + neutral, y + 29}, meterMuted);
+    draw->AddLine({x + neutral, y + 15}, {x + neutral, y + 21}, meterMuted);
 }
 static void drawMeterButtons(float x, float y, float width,
                              std::uint16_t available, std::uint16_t down,
                              std::uint16_t suppressed) {
   const float cell = width / 5;
-  auto draw = ImGui::GetForegroundDrawList();
   for (int i = 0; i < 10; ++i) {
     const auto mask = 1u << i;
-    const char *name = buttonCaption(meterButtonOrder[i]);
-    const float left = x + (i % 5) * cell, top = y + (i / 5) * 24.f;
-    const bool pressed = down & mask;
-    draw->AddRectFilled({left, top}, {left + cell - 3, top + 21},
-                        pressed ? meterActive : IM_COL32(33, 47, 62, 255), 3);
-    if (suppressed & mask)
-      draw->AddRect({left, top}, {left + cell - 3, top + 21}, meterWarning, 3);
-    label(left + (cell - 3 - ImGui::CalcTextSize(name).x) * .5f, top + 1,
-          name, pressed ? IM_COL32(12, 19, 28, 255)
-                        : (suppressed & mask) ? meterWarning
-                        : (available & mask) ? meterMuted
-                                             : IM_COL32(117, 136, 154, 255));
+    if (!(available & mask))
+      continue;
+    const auto button = meterButtonOrder[i];
+    const float left = x + (i % 5) * cell + (cell - glyphWidth(button)) * .5f;
+    const float top = y + (i / 5) * 23.f;
+    drawButtonGlyph(left, top, button,
+                    (suppressed & mask) ? meterWarning
+                    : (down & mask) ? meterActive : meterMuted);
   }
 }
-static void drawInputMeter(float x, float y, const XINPUT_GAMEPAD &gamepad,
+static void drawInputMeter(float width, float y, const XINPUT_GAMEPAD &gamepad,
                            bool connected, ControllerId slot, bool singlePad,
                            const DrivingInputSample &sample) {
-  constexpr float column = (meterWidth - 44) * .5f;
-  const float left = x + 14, right = x + meterWidth - 14 - column;
-  panel(x, y, x + meterWidth, y + meterHeight);
-  label(left, y + 12, text("CANLI GİRİŞ", "LIVE INPUT"));
+  constexpr float column = meterColumn;
+  const float left = meterMargin, right = width - meterMargin - column;
   char slotText[48];
   std::snprintf(slotText, sizeof(slotText), "%s", text("Kontrolcü bekleniyor", "Waiting for controller"));
   if (connected) {
@@ -1195,27 +1350,27 @@ static void drawInputMeter(float x, float y, const XINPUT_GAMEPAD &gamepad,
     else
       std::snprintf(slotText, sizeof(slotText), text("Kontrolcü %d", "Controller %d"), int(slot) + 1);
   }
-  label(left, y + 42, slotText, meterActive);
+  hudLabel(left, y, slotText, meterActive);
   const char *status = !connected ? text("Kontrolcü bağlı değil", "Controller disconnected")
                        : !singlePad || sample.ambiguous ? text("Birden çok cihaz", "Multiple devices")
                        : !sample.tick ? text("LFS’den veri bekleniyor", "Waiting for LFS input")
                        : sample.axesFiltered ? text("Eksenler sıfırda", "Axes at neutral")
                        : sample.buttonsFiltered ? text("Tuş filtresi açık", "Buttons filtered")
                        : text("Oyunun gördüğü", "Seen by LFS");
-  label(right, y + 42, status, sample.tick ? meterActive : meterWarning);
-  drawMeterAxis(left, y + 69, column, text("Direksiyon", "Steering"),
+  hudLabel(right, y, status, sample.tick ? meterActive : meterWarning);
+  drawMeterAxis(left, y + 22, column, text("Direksiyon", "Steering"),
                 axisFraction(gamepad.sThumbLX, -32768, 32767), connected, true);
-  drawMeterAxis(left, y + 103, column, text("Gaz (RT)", "Throttle (RT)"),
+  drawMeterAxis(left, y + 46, column, text("Gaz (RT)", "Throttle (RT)"),
                 gamepad.bRightTrigger / 255.f, connected, false);
-  drawMeterAxis(left, y + 137, column, text("Fren (LT)", "Brake (LT)"),
+  drawMeterAxis(left, y + 70, column, text("Fren (LT)", "Brake (LT)"),
                 gamepad.bLeftTrigger / 255.f, connected, false);
-  drawMeterAxis(right, y + 69, column, text("Sol X", "Left X"), sample.steering,
+  drawMeterAxis(right, y + 22, column, text("Sol X", "Left X"), sample.steering,
                 sample.steeringAvailable, true);
   if (sample.splitPedals) {
-    drawMeterAxis(right, y + 103, column, text("Gaz (RT)", "Throttle (RT)"), sample.throttle, true, false);
-    drawMeterAxis(right, y + 137, column, text("Fren (LT)", "Brake (LT)"), sample.brake, true, false);
+    drawMeterAxis(right, y + 46, column, text("Gaz (RT)", "Throttle (RT)"), sample.throttle, true, false);
+    drawMeterAxis(right, y + 70, column, text("Fren (LT)", "Brake (LT)"), sample.brake, true, false);
   } else {
-    drawMeterAxis(right, y + 103, column, text("Ortak Z (LT/RT)", "Combined Z (LT/RT)"), sample.triggers,
+    drawMeterAxis(right, y + 46, column, text("Ortak Z (LT/RT)", "Combined Z (LT/RT)"), sample.triggers,
                   sample.triggersAvailable, true);
   }
 
@@ -1227,20 +1382,20 @@ static void drawInputMeter(float x, float y, const XINPUT_GAMEPAD &gamepad,
                 raw & XINPUT_GAMEPAD_DPAD_LEFT ? "←" : "",
                 raw & XINPUT_GAMEPAD_DPAD_RIGHT ? "→" : "",
                 (raw & 0xf) ? "" : connected ? text("Nötr", "Neutral") : "-");
-  label(left, y + 174, direction, (raw & 0xf) ? meterActive : meterMuted);
+  hudLabel(left, y + 94, direction, (raw & 0xf) ? meterActive : meterMuted);
   static const char *povNames[] = {"↑", "↑→", "→", "↓→", "↓", "↓←", "←", "↑←"};
   const bool povMoved = sample.povAvailable && sample.pov < 36000;
   const char *pov = !sample.povAvailable ? "-" : !povMoved ? text("Nötr", "Neutral")
                          : povNames[((sample.pov + 2250) / 4500) % 8];
   std::snprintf(direction, sizeof(direction), "D-pad  %s", pov);
-  label(right, y + 174, direction, povMoved ? meterActive : meterMuted);
+  hudLabel(right, y + 94, direction, povMoved ? meterActive : meterMuted);
 
   std::uint16_t rawDown = 0;
   for (int i = 0; i < 10; ++i)
     if (raw & physical[meterButtonOrder[i]])
       rawDown |= 1u << i;
-  drawMeterButtons(left, y + 199, column, connected ? 0x3ff : 0, rawDown, 0);
-  drawMeterButtons(right, y + 199, column, sample.buttonsAvailable,
+  drawMeterButtons(left, y + 114, column, connected ? 0x3ff : 0, rawDown, 0);
+  drawMeterButtons(right, y + 114, column, sample.buttonsAvailable,
                    sample.buttonsDown, sample.buttonsSuppressed);
 }
 static void drawQuickMenu(float width, float height, QuickAction selection) {
@@ -1277,16 +1432,17 @@ static void applyQuickAction(QuickAction action) {
   log("Quick action: %u", unsigned(action));
 }
 static void drawReplay(float width, float height, const ReplayState &replay) {
-  char hint[220];
+  char clock[64];
   const unsigned now = replay.position / 1000, total = replay.duration / 1000;
-  std::snprintf(hint, sizeof(hint),
-                text("Tekrar  %u:%02u / %u:%02u    %s: %s    LT / RT: -5 / +5 sn", "Replay  %u:%02u / %u:%02u    %s: %s    LT / RT: -5 / +5 s"),
-                now / 60, now % 60, total / 60, total % 60, bindingName(Confirm),
-                replay.paused ? text("Oynat", "Play") : text("Duraklat", "Pause"));
-  const float w = ImGui::CalcTextSize(hint).x + 24;
-  const float l = (width - w) * .5f;
-  panel(l, height - 82, l + w, height - 38);
-  label(l + 12, height - 72, replay.seeking ? text("Tekrar sarılıyor...", "Seeking...") : hint);
+  if (replay.seeking)
+    std::snprintf(clock, sizeof(clock), "%s", text("Tekrar sarılıyor...", "Seeking..."));
+  else
+    std::snprintf(clock, sizeof(clock), "%u:%02u / %u:%02u",
+                  now / 60, now % 60, total / 60, total % 60);
+  drawCornerHints(width, height, false, {
+      {cfg.bindings[Confirm], replay.paused ? text("Oynat", "Play") : text("Duraklat", "Pause")},
+      {cfg.bindings[Back], text("Menü", "Menu")}});
+  drawCornerHints(width, height, true, {{-1, clock}, {PadLT, "-5 s"}, {PadRT, "+5 s"}});
 }
 static void drawRecovery(float width, float height, RecoveryPhase phase,
                          RaceSession session, bool connected, bool canResume) {
@@ -1335,16 +1491,15 @@ static void drawFinishHold(const Item &item, float width, double now) {
   if (width < 64)
     return;
   auto button = pixel(item.rect.l, item.rect.t);
-  char hint[96];
-  std::snprintf(hint, sizeof(hint), text("Yarışı bitirmek için %s tuşunu basılı tut", "Hold %s to end the race"),
-                bindingName(Confirm));
-  const float w = std::min(ImGui::CalcTextSize(hint).x + 24, width - 20);
+  const auto *hint = text("Yarışı bitirmek için basılı tut", "Hold to end the race");
+  const auto glyph = glyphWidth(cfg.bindings[Confirm]);
+  const float w = std::min(glyph + ImGui::CalcTextSize(hint).x + 30, width - 20);
   const float left = std::clamp(button.x, 10.f, std::max(10.f, width - w - 10));
   const float top = std::max(10.f, button.y - 54);
-  panel(left, top, left + w, top + 44);
   auto draw = ImGui::GetForegroundDrawList();
   draw->PushClipRect({left, top}, {left + w, top + 44}, true);
-  label(left + 12, top + 7, hint);
+  drawButtonGlyph(left + 12, top + 4, cfg.bindings[Confirm]);
+  hudLabel(left + 16 + glyph, top + 6, hint);
   const float right = left + w - 12;
   draw->AddRectFilled({left + 12, top + 34}, {right, top + 38},
                       IM_COL32(75, 87, 100, 255), 2);
@@ -1598,11 +1753,18 @@ void frame(IDXGISwapChain *swap) {
   bool confirm =
            (pressed & (settings ? XINPUT_GAMEPAD_A : binding(Confirm))) != 0,
        back = (pressed & (settings ? XINPUT_GAMEPAD_B : binding(Back))) != 0;
+  // A D-pad direction assigned to an action must not move focus as well.
+  const auto reservedDirections = settings ? 0u
+      : binding(Confirm) | binding(Back) | binding(Menu) | binding(Keyboard) |
+            (keyboard ? binding(Secondary)
+             : binding(CursorMode) | (cursorMode ? binding(Secondary)
+                                               : binding(PreviousTab) | binding(NextTab)));
+  const auto navButtons = held & ~reservedDirections;
   bool directions[] = {
-      bool(held & XINPUT_GAMEPAD_DPAD_UP) || (stickArmed && ly > .55f),
-      bool(held & XINPUT_GAMEPAD_DPAD_DOWN) || (stickArmed && ly < -.55f),
-      bool(held & XINPUT_GAMEPAD_DPAD_LEFT) || (stickArmed && lx < -.55f),
-      bool(held & XINPUT_GAMEPAD_DPAD_RIGHT) || (stickArmed && lx > .55f)};
+      bool(navButtons & XINPUT_GAMEPAD_DPAD_UP) || (stickArmed && ly > .55f),
+      bool(navButtons & XINPUT_GAMEPAD_DPAD_DOWN) || (stickArmed && ly < -.55f),
+      bool(navButtons & XINPUT_GAMEPAD_DPAD_LEFT) || (stickArmed && lx < -.55f),
+      bool(navButtons & XINPUT_GAMEPAD_DPAD_RIGHT) || (stickArmed && lx > .55f)};
   bool nav[4]{};
   for (int i = 0; i < 4; ++i)
     nav[i] = repeat[i].update(directions[i] && foreground && connected, time,
@@ -1649,7 +1811,7 @@ void frame(IDXGISwapChain *swap) {
   const bool settingsChordAllowed = menu && foreground && !contextChanged &&
       !lostAssignmentFocus && (connected || cfg.diagnostics) && !nativeText && !keyboard &&
       !garageViewer && !adjustingSlider && !cursorDragging && !bindingCapture.active() &&
-      (!pedalCalibration || settings);
+      !nativeButtonAssignment && (!pedalCalibration || settings);
   if (!settingsChordAllowed)
     diagnosticTriggersUntil = 0;
   else if (diagnosticSettings)
@@ -1820,20 +1982,45 @@ void frame(IDXGISwapChain *swap) {
     diagnosticOrbitUntil = 0;
   else if (diagnostic & (1u << 17))
     diagnosticOrbitUntil = time + .40;
-  if (bindingCapture.active()) {
+  const bool assigningDrivingButton = foreground && nativeButtonAssignment && !settings;
+  static NativeButtonAssignmentGate drivingAssignment;
+  static double drivingTestUntil = 0;
+  static unsigned drivingTestPov = 0xffffffff;
+  const bool drivingAssignmentArmed = drivingAssignment.update(assigningDrivingButton, reset, buttons);
+  if (drivingAssignmentArmed && singlePad && (diagnostic & dpad)) {
+    const unsigned angles[]{0, 18000, 27000, 9000};
+    for (int i = 0; i < 4; ++i)
+      if (diagnostic & (1u << i)) {
+        drivingTestPov = angles[i];
+        drivingTestUntil = time + .15;
+        break;
+      }
+  }
+  diagnosticDrivingPov.store(assigningDrivingButton && time < drivingTestUntil
+                                 ? drivingTestPov : 0xffffffff);
+  if (!assigningDrivingButton)
+    drivingTestUntil = 0;
+  if (assigningDrivingButton) {
+    // LFS is listening for a driving button. Do not interpret that same
+    // press as a menu action, and wait for the opening press to clear.
+    blockMenuInput();
+  } else if (bindingCapture.active()) {
     if (!settings || !foreground || lostAssignmentFocus || !connected ||
-        activeSlot != oldSlot || (pressed & XINPUT_GAMEPAD_DPAD_LEFT) ||
-        (diagnostic & (1u << 2))) {
+        activeSlot != oldSlot || (pad.bLeftTrigger > 160 && pad.bRightTrigger > 160) ||
+        diagnosticSettings) {
       bindingCapture.cancel();
     } else {
       const auto candidate = std::uint16_t(
           buttons | (diagnosticConfirm ? XINPUT_GAMEPAD_A : 0) |
           ((diagnostic & (1u << 8)) ? XINPUT_GAMEPAD_B : 0) |
           ((diagnostic & (1u << 9)) ? XINPUT_GAMEPAD_START : 0) |
-          (diagnosticAssign ? XINPUT_GAMEPAD_X : 0));
+          (diagnosticAssign ? XINPUT_GAMEPAD_X : 0) | (diagnostic & dpad));
       const int button = bindingCapture.update(candidate, physical);
-      if (button >= 0)
+      if (button >= 0) {
         rebind(cfg.bindings, settingRow - firstBindingSetting, button);
+        if (cfg.diagnostics)
+          log("Assigned physical button %d to action %d", button, settingRow - firstBindingSetting);
+      }
     }
     if (!bindingCapture.active())
       blockMenuInput();
@@ -1965,12 +2152,24 @@ void frame(IDXGISwapChain *swap) {
           }
         }
       } else if (menuShortcutsOpen) {
-        constexpr auto dpad = std::uint16_t(
-            XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_DOWN |
-            XINPUT_GAMEPAD_DPAD_LEFT | XINPUT_GAMEPAD_DPAD_RIGHT);
-        const auto injected = diagnosticMenuShortcuts ? diagnostic & dpad : 0u;
-        const int direction = menuShortcutDirection((buttons & dpad) | injected,
-                                                     (pressed & dpad) | injected);
+        const auto modifier = binding(SettingsModifier);
+        auto directionalPress = pressed & dpad & ~modifier;
+        auto directionalHeld = buttons & dpad & ~modifier;
+        if (diagnosticMenuShortcuts) {
+          directionalPress |= diagnostic & dpad;
+          directionalHeld |= diagnostic & dpad;
+        }
+        if (modifier & dpad) {
+          // A direction used as the modifier cannot also be pressed in the
+          // chord. The left stick still reaches all four shortcut targets.
+          const bool stickDirections[]{ly > .55f, ly < -.55f, lx < -.55f, lx > .55f};
+          for (int i = 0; stickArmed && i < 4; ++i)
+            if (stickDirections[i]) {
+              directionalPress |= physical[PadUp + i];
+              directionalHeld |= physical[PadUp + i];
+            }
+        }
+        const int direction = menuShortcutDirection(directionalHeld, directionalPress);
         if (direction >= 0 && menuShortcuts[direction].item >= 0) {
           selected = menuShortcuts[direction].item;
           scrollTarget = -1;
@@ -2169,9 +2368,7 @@ void frame(IDXGISwapChain *swap) {
     cancelFinishHold();
   // Continue suppressing a held menu button until release after returning to
   // driving.
-  auto consumed =
-      std::uint16_t(XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_DOWN |
-                    XINPUT_GAMEPAD_DPAD_LEFT | XINPUT_GAMEPAD_DPAD_RIGHT);
+  auto consumed = dpad;
   for (int b : cfg.bindings)
     consumed |= physical[b];
   consumed |= shortcutInput.buttonsHeld;
@@ -2181,7 +2378,7 @@ void frame(IDXGISwapChain *swap) {
     draining = true;
   if (!(buttons & consumed))
     draining = false;
-  captureButtons.store(foreground && connected &&
+  captureButtons.store(foreground && connected && !drivingAssignmentArmed &&
                        (menu || playingReplay || recoveryCapture || draining));
   captureRaceAxes.store(foreground && connected && (raceMenu || recoveryCapture));
   const bool settingsVisible = foreground && menu && settings;
@@ -2239,24 +2436,14 @@ void frame(IDXGISwapChain *swap) {
       stopMotors();
     }
   }
-  const bool meterFits = cfg.inputMonitor &&
-                         width >= meterWidth + 2 * meterMargin &&
-                         height >= meterHeight + 2 * meterMargin;
-  const bool meterBeside = settingsVisible && meterFits &&
-                          width >= settingsWidth + meterGap + meterWidth +
-                                       2 * meterMargin;
-  const bool meterBelow = settingsVisible && meterFits && !meterBeside &&
-                          height >= settingsHeight + meterGap + meterHeight +
-                                        2 * meterMargin;
-  const bool showMeter = foreground && !keyboard && meterFits &&
-                         (meterBeside || meterBelow ||
-                          (!settingsVisible && (raceMenu || (onTrack && !menu))));
+  const bool meterFits = width >= meterColumn * 2 + 4 * meterMargin &&
+                         height >= meterHeight * 2;
+  const bool showMeter = cfg.inputMonitor && foreground && !keyboard && meterFits &&
+      ((!settings && (raceMenu || (onTrack && !menu))) ||
+       (settingsVisible && width > settingsWidth + 2 * (meterColumn + 2 * meterMargin)));
   const float settingsW = std::min(width - 30, settingsWidth);
-  const float reservedWidth = meterBeside ? meterWidth + meterGap : 0;
-  const float reservedHeight = meterBelow ? meterHeight + meterGap : 0;
-  const float settingsX = (width - settingsW - reservedWidth) * .5f;
-  const float settingsY = std::max(
-      meterMargin, (height - settingsHeight - reservedHeight) * .5f);
+  const float settingsX = (width - settingsW) * .5f;
+  const float settingsY = std::max(meterMargin, (height - settingsHeight) * .5f);
   const bool collectInput = showMeter && connected && singlePad;
   static ULONGLONG meterSince = 0;
   if (!monitorInput.exchange(collectInput) && collectInput)
@@ -2269,94 +2456,66 @@ void frame(IDXGISwapChain *swap) {
     else if (keyboard)
       drawKeyboard(width, height);
     else {
-      if (!cursorMode && selected >= 0) {
+      if (!assigningDrivingButton && !cursorMode && selected >= 0) {
         auto r = items[selected].rect;
         ImGui::GetForegroundDrawList()->AddRect(
             pixel(r.l, r.t), pixel(r.r, r.b), IM_COL32(65, 255, 196, 255), 3, 0,
             3);
       }
-      char hint[320];
-      char pageHint[80]{};
-      char shortcutHint[80]{};
-      if (hasMenuShortcuts && !cursorMode)
-        std::snprintf(shortcutHint, sizeof(shortcutHint), text("   %s + D-pad: Kısayol", "   %s + D-pad: Shortcut"),
-                      bindingName(SettingsModifier));
-      if (inList && !cursorMode)
-        std::snprintf(pageHint, sizeof(pageHint), text("   %s / %s: Sayfa", "   %s / %s: Page"),
-                      bindingName(PreviousTab), bindingName(NextTab));
-      const char *settingsHint = garageViewer || adjustingSlider || pedalCalibration ? "" :
-                                 playStationCaptions ? text("   L2+R2 tut: Ayarlar", "   Hold L2+R2: Settings") : text("   LT+RT tut: Ayarlar", "   Hold LT+RT: Settings");
-      std::snprintf(hint, sizeof(hint),
-                    text("LFS PAD  |  %s: Seç   %s: Geri   %s: Klavye   %s: %s%s%s%s%s", "LFS PAD  |  %s: Select   %s: Back   %s: Keyboard   %s: %s%s%s%s%s"),
-                    bindingName(Confirm), bindingName(Back),
-                    bindingName(Keyboard), bindingName(CursorMode),
-                    cursorMode ? text("Seçim", "Selection") : text("İmleç", "Cursor"), settingsHint,
-                    pageHint, shortcutHint,
-                    !connected && !cfg.diagnostics ? text("   [Kontrolcü bekleniyor]", "   [Waiting for controller]") : "");
-      if (garageViewer && !cursorMode)
-        std::snprintf(hint, sizeof(hint),
-                      text("Sağ analog: Döndür   LT / RT: Uzaklaştır / yakınlaştır   %s: Garaja dön   %s: İmleç", "Right stick: Rotate   LT / RT: Zoom out / in   %s: Back to garage   %s: Cursor"),
-                      bindingName(Back), bindingName(CursorMode));
-      if (garageViewer && !cursorMode && connected && !singlePad)
-        std::snprintf(hint, sizeof(hint),
-                      text("Aracı çevirmek için tek kol bağla   |   %s: Garaja dön   %s: İmleç", "Connect one controller to rotate the car   |   %s: Back to garage   %s: Cursor"),
-                      bindingName(Back), bindingName(CursorMode));
-      auto size = ImGui::CalcTextSize(hint);
-      float w = std::min(width - 20, size.x + 24),
-            h = adjustingSlider ? 64.f : 36.f;
-      // Find room between native controls instead of covering bottom buttons.
-      ImVec2 pos{10, height - h - 10};
-      float best = 1e30f;
-      for (float y = height - h - 10; y >= 10; y -= h + 8)
-        for (float x : {10.f, std::max(10.f, width - w - 10)}) {
-          float overlap = 0;
-          for (auto &item : items) {
-            auto a = pixel(item.rect.l, item.rect.t),
-                 b = pixel(item.rect.r, item.rect.b);
-            overlap +=
-                std::max(0.f, std::min(x + w + 4, b.x) - std::max(x - 4, a.x)) *
-                std::max(0.f, std::min(y + h + 4, b.y) - std::max(y - 4, a.y));
-          }
-          if (overlap < best) {
-            best = overlap;
-            pos = {x, y};
-          }
-        }
-      auto d = ImGui::GetForegroundDrawList();
-      d->AddRectFilled(pos, {pos.x + w, pos.y + h}, IM_COL32(10, 17, 25, 220),
-                       6);
-      d->PushClipRect(pos, {pos.x + w, pos.y + h});
-      label(pos.x + 12, pos.y + 8, hint);
-      if (adjustingSlider) {
-        char sliderHint[120];
-        std::snprintf(sliderHint, sizeof(sliderHint),
-                      text("Kaydırıcı: sol / sağ    %s / %s: bitir", "Slider: left / right    %s / %s: finish"),
-                      bindingName(Confirm), bindingName(Back));
-        label(pos.x + 12, pos.y + 36, sliderHint);
+      if (menuShortcutsOpen && !assigningDrivingButton)
+        drawMenuShortcuts(width, height, menuShortcuts, selected);
+      else if (assigningDrivingButton) {
+        drawCornerHints(width, height, false, {
+            {PadDirections, text("Atamak için bir tuşa ya da yöne bas", "Press a button or direction to assign")}});
+        drawCornerHints(width, height, true, {{-1, text("Esc · İptal", "Esc · Cancel")}});
+      } else if (!connected && !cfg.diagnostics) {
+        drawCornerHints(width, height, false,
+                        {{-1, text("Kontrolcü bekleniyor", "Waiting for controller")}});
+      } else if (garageViewer && !cursorMode) {
+        drawCornerHints(width, height, false, {
+            {cfg.bindings[Back], text("Garaja dön", "Back to garage")},
+            {cfg.bindings[CursorMode], text("İmleç", "Cursor")}});
+        if (singlePad)
+          drawCornerHints(width, height, true, {
+              {PadRightStick, text("Döndür", "Rotate")},
+              {PadLT, text("Yakınlaştır", "Zoom"), PadRT}});
+      } else if (adjustingSlider) {
+        drawCornerHints(width, height, false, {{PadLeft, text("Değiştir", "Adjust"), PadRight}});
+        drawCornerHints(width, height, true, {
+            {cfg.bindings[Confirm], text("Bitir", "Finish")},
+            {cfg.bindings[Back], text("Geri", "Back")}});
+      } else {
+        drawCornerHints(width, height, false, {
+            {cfg.bindings[Confirm], cursorMode ? text("Tıkla", "Click") : text("Seç", "Select")},
+            {cfg.bindings[Back], text("Geri", "Back")},
+            {cfg.bindings[CursorMode], cursorMode ? text("Seçim", "Selection") : text("İmleç", "Cursor")}});
+        const int modifier = cfg.bindings[SettingsModifier];
+        const HudHint settingsHint{PadLT, text("Ayarlar için tut", "Hold for settings"), PadRT};
+        if (hasMenuShortcuts && !cursorMode)
+          drawCornerHints(width, height, true, {
+              {modifier, text("Kısayollar", "Shortcuts"), modifier >= PadUp ? PadLeftStick : PadDirections},
+              {cfg.bindings[Keyboard], text("Klavye", "Keyboard")}, settingsHint});
+        else if (inList && !cursorMode)
+          drawCornerHints(width, height, true, {
+              {cfg.bindings[PreviousTab], text("Sayfa", "Page"), cfg.bindings[NextTab]},
+              {cfg.bindings[Keyboard], text("Klavye", "Keyboard")}, settingsHint});
+        else if (pedalCalibration)
+          drawCornerHints(width, height, true, {{cfg.bindings[Keyboard], text("Klavye", "Keyboard")}});
+        else
+          drawCornerHints(width, height, true, {
+              {cfg.bindings[Keyboard], text("Klavye", "Keyboard")}, settingsHint});
       }
-      d->PopClipRect();
       if (finishHint && (connected || cfg.diagnostics))
         drawFinishHold(items[raceFinishItem], width, time);
-      if (menuShortcutsOpen)
-        drawMenuShortcuts(width, height, menuShortcuts, selected);
+
     }
   }
   if (foreground && playingReplay && replay.active && (connected || cfg.diagnostics))
     drawReplay(width, height, replay);
   if (showMeter) {
-    float x = width - meterWidth - meterMargin;
-    float y = std::clamp(height * .39f, meterMargin,
-                         height - meterHeight - meterMargin);
-    if (meterBeside) {
-      x = settingsX + settingsW + meterGap;
-      y = settingsY;
-    } else if (meterBelow) {
-      x = (width - meterWidth) * .5f;
-      y = settingsY + settingsHeight + meterGap;
-    }
-    drawInputMeter(x, y, state.Gamepad, connected, activeSlot, singlePad,
-                   collectInput ? drivingInputSample(meterSince)
-                                : DrivingInputSample{});
+    const float y = std::max(meterMargin, height - meterHeight - (menu ? 110.f : 38.f));
+    drawInputMeter(width, y, state.Gamepad, connected, activeSlot, singlePad,
+                   collectInput ? drivingInputSample(meterSince) : DrivingInputSample{});
   }
   if (foreground && onTrack && recovery.phase != RecoveryPhase::Idle)
     drawRecovery(width, height, recovery.phase, session, recoveryConnected, canTogglePause);

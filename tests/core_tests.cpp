@@ -437,8 +437,9 @@ int main() {
   rebind(bindings, 0, 9);
   check(bindings[0] == 9 && bindings[3] == 1,
         "reassign occupied custom button");
-  const std::array<std::uint16_t, 10> assignable = {
-      0x1000, 0x2000, 0x4000, 0x8000, 0x0100, 0x0200, 0x0010, 0x0020, 0x0080, 0x0040};
+  const std::array<std::uint16_t, 14> assignable = {
+      0x1000, 0x2000, 0x4000, 0x8000, 0x0100, 0x0200, 0x0010, 0x0020, 0x0080, 0x0040,
+      0x0001, 0x0002, 0x0004, 0x0008};
   BindingCapture capture;
   check(capture.update(assignable[2], assignable) == -1,
         "inactive capture ignores input");
@@ -454,8 +455,10 @@ int main() {
         "multiple buttons require release and a new press");
   check(capture.update(assignable[1], assignable) == -1,
         "remaining held button cannot complete a chord assignment");
-  check(capture.update(0x0001, assignable) == -1 && capture.active(),
-        "D-pad direction does not assign a binding");
+  check(capture.update(0, assignable) == -1 &&
+            capture.update(0x0005, assignable) == -1 &&
+            capture.update(0x0004, assignable) == -1 && capture.active(),
+        "diagonal D-pad input requires a fresh cardinal press");
   for (int i = 0; i < int(assignable.size()); ++i) {
     capture.begin();
     capture.update(0, assignable);
@@ -467,6 +470,15 @@ int main() {
   capture.cancel();
   check(capture.update(assignable[6], assignable) == -1 && !capture.active(),
         "cancel discards the pending assignment");
+  NativeButtonAssignmentGate nativeAssignment;
+  check(!nativeAssignment.update(true, true, assignable[0]) &&
+            !nativeAssignment.update(true, false, assignable[0]) &&
+            nativeAssignment.update(true, false, 0),
+        "native driving assignment waits for the opening button to be released");
+  check(nativeAssignment.update(true, false, assignable[12]) &&
+            !nativeAssignment.update(false, false, assignable[12]) &&
+            !nativeAssignment.update(true, true, assignable[12]),
+        "native assignment forwards a fresh D-pad direction only inside the binding prompt");
   check(colourSliderPosition(0, 160, -1) > 0.f &&
             colourSliderPosition(160, 160, 1) < 1.f,
         "colour clicks stay inside both ends of the slider");

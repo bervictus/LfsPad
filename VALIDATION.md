@@ -1,5 +1,11 @@
 # LfsPad test notları
 
+## LfsPad 0.1.5
+
+- LFS 0.8C38’in kendi Kontroller ekranında dört D-pad yönü DirectInput tanılama girdisiyle denendi. Her yön tuş bekleme ekranını tamamladı. Açan tuşun bırakılmasına kadar girdiyi süzen geçiş ve dört yönün LfsPad menü atamalarında kullanılabilmesi otomatik olarak sınandı.
+- Tam ekran ve pencere modunda tuş simgelerinin sol ve sağ alt köşelerde görünmesi kontrol edildi. LfsPad’in D-pad sol ataması kaydedildi ve yeni simge oyun içi ipucunda görüldü.
+- Çekirdek ve kontrolcü testleriyle 45 kurulum kontrolü geçti.
+
 ## LfsPad 0.1.4
 
 - Birden fazla kontrolcüyle otomatik titreşim seçimi, son kullanılan kolun hatırlanması ve bağlantı kesilmesi otomatik olarak sınandı.

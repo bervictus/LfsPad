@@ -23,8 +23,9 @@ struct BindingCapture {
   void cancel() { phase = Phase::Idle; }
   bool active() const { return phase != Phase::Idle; }
 
+  template <std::size_t N>
   int update(std::uint16_t buttons,
-             const std::array<std::uint16_t, 10> &assignable) {
+             const std::array<std::uint16_t, N> &assignable) {
     if (!active())
       return -1;
     int button = -1;
@@ -47,6 +48,18 @@ struct BindingCapture {
     return button;
   }
 };
+struct NativeButtonAssignmentGate {
+  bool armed = false;
+
+  bool update(bool assigning, bool reset, std::uint16_t buttons) {
+    if (!assigning || reset)
+      armed = false;
+    if (assigning && !buttons)
+      armed = true;
+    return armed;
+  }
+};
+
 struct Rect {
   float l, t, r, b;
   float x() const { return (l + r) * .5f; }

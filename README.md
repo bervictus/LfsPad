@@ -6,7 +6,7 @@ LfsPad ile Live for Speed’de tek oyunculu bir yarış açabilir, garajda araba
 
 ## Kurulum ve kaldırma
 
-1. LFS’yi kapat ve [Windows kurulum dosyasını indir](https://github.com/bervictus/LfsPad/releases/download/v0.1.4/LfsPad-0.1.4-setup.exe).
+1. LFS’yi kapat ve [Windows kurulum dosyasını indir](https://github.com/bervictus/LfsPad/releases/download/v0.1.5/LfsPad-0.1.5-setup.exe).
 2. Kurulumda `LFS.exe` dosyasının bulunduğu klasörü seç.
 3. **Kur**’a bas ve oyunu aç. LfsPad zaten kuruluysa **Güncelle**’ye bas. Tuş atamaların ve diğer ayarların korunur.
 
@@ -37,6 +37,8 @@ Kurucunun sağ üstünden **Türkçe** veya **English** seç. Oyun içinde iki t
 **D-pad** veya **sol analog** ile dolaş. Xbox’ta **A** ile seç, **B** ile geri dön. PlayStation’da aynı işi **Çarpı** ve **Daire** yapar. Bir düğmeye ulaşmak zorsa **R3**’e basıp sağ analogu fare gibi kullan. Yazı yazarken **Y** (PlayStation’da **Üçgen**) ekran klavyesini açar.
 
 **Back**’i basılı tutunca bulunduğun menünün kısayollarını görürsün. Örneğin ana menüde **Back + aşağı** ile **Seçenekler**’e geç. Back’i bırakıp **A**’ya bas. Kısayolları değiştirmek, titreşimi ayarlamak veya bağlı kollar arasından seçim yapmak için menüde iki tetiği birlikte kısa süre basılı tut (**LT + RT** veya **L2 + R2**). [Tuşlar ve kısayollar](KONTROLLER.md)
+
+Menü ipuçları, ekranın sol ve sağ alt köşelerinde saydam arka planla görünür. LFS’de **Seçenekler → Kontroller** altında bir sürüş işlevinin tuş kutusunu açıp D-pad yönüne basarak atama yapabilirsin.
 
 ## Gazı ve freni ayrı kullanmak
 

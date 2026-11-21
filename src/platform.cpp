@@ -17,6 +17,7 @@ namespace pad {
 HMODULE self = nullptr;
 std::atomic<bool> captureButtons{false};
 std::atomic<bool> captureRaceAxes{false};
+std::atomic<unsigned> diagnosticDrivingPov{0xffffffff};
 std::atomic<unsigned> captureQuickInput{0};
 std::atomic<bool> monitorInput{false};
 std::atomic<int> pedalSlot{-1};
@@ -513,6 +514,7 @@ static HRESULT STDMETHODCALLTYPE stateHook(void *obj, DWORD size, void *data) {
   const bool buttons = captureButtons.load();
   const auto quick = captureQuickInput.load();
   const bool observe = monitorInput.load();
+  const unsigned testPov = diagnosticDrivingPov.load();
   if (SUCCEEDED(hr) && data) {
     std::lock_guard<std::mutex> lock(hooksMutex);
     auto gamepad = gamepads.find(obj);
@@ -521,7 +523,7 @@ static HRESULT STDMETHODCALLTYPE stateHook(void *obj, DWORD size, void *data) {
     auto &format = gamepad->second;
     if (!supportedGamepad(format))
       return hr;
-    if (!(axes || buttons || quick || observe || format.splitPedals))
+    if (!(axes || buttons || quick || observe || format.splitPedals || testPov < 36000))
       return hr;
     if (format.size == size && !format.controls.empty()) {
       if ((observe || axes || (quick & (rightStickMask | triggerAxisMask | leftStickMask))) &&
@@ -550,6 +552,9 @@ static HRESULT STDMETHODCALLTYPE stateHook(void *obj, DWORD size, void *data) {
         } else {
           if (filtered)
             std::memcpy(dest, &control.neutral, sizeof(control.neutral));
+          else if (control.kind == ControlKind::Pov && testPov < 36000 &&
+                   control.offset == offsetof(DIJOYSTATE2, rgdwPOV))
+            std::memcpy(dest, &testPov, sizeof(testPov));
           if (!observe)
             continue;
           if (control.kind == ControlKind::Pov && !sample.povAvailable) {
