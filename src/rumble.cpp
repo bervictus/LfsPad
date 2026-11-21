@@ -24,30 +24,20 @@ DrivingTelemetry drivingTelemetry() {
   return sample;
 }
 
-using SetState = decltype(&XInputSetState);
-static SetState setState = nullptr;
 static SRWLOCK motorsLock = SRWLOCK_INIT;
-static int motorSlot = -1;
+static ControllerId motorSlot = -1;
 static MotorLevels motorLevelsSent;
 static ULONGLONG lastCommand = 0, lastWrite = 0;
+static ControllerId declinedSlot = -1;
+static ULONGLONG declinedAt = 0;
 static bool diagnosticLease = false;
-
-HMODULE xinputModule() {
-  static const HMODULE module = [] {
-    wchar_t system[MAX_PATH];
-    GetSystemDirectoryW(system, MAX_PATH);
-    return LoadLibraryW((std::wstring(system) + L"\\xinput1_4.dll").c_str());
-  }();
-  return module;
-}
 
 static void clearMotors() {
   if (motorSlot < 0)
     return;
-  XINPUT_VIBRATION zero{};
-  const DWORD result = setState(motorSlot, &zero);
+  const DWORD result = setControllerVibration(motorSlot, 0, 0);
   if (diagnosticLease)
-    log("Rumble stop: slot=%d status=%lu", motorSlot, result);
+    log("Rumble stop: device=%lld status=%lu", static_cast<long long>(motorSlot), result);
   motorSlot = -1;
   motorLevelsSent = {};
 }
@@ -65,7 +55,7 @@ void stopMotors() {
   ReleaseSRWLockExclusive(&motorsLock);
 }
 
-void driveMotors(int slot, MotorLevels levels, HWND window, bool diagnostic) {
+void driveMotors(ControllerId slot, MotorLevels levels, HWND window, bool diagnostic) {
   if (slot < 0 || (!levels.left && !levels.right)) {
     stopMotors();
     return;
@@ -73,12 +63,9 @@ void driveMotors(int slot, MotorLevels levels, HWND window, bool diagnostic) {
   // The module is loaded for the life of the game. A Windows timer queue
   // clears any active command even if Present stops delivering frames.
   static const bool ready = [] {
-    auto module = xinputModule();
-    if (module)
-      setState = reinterpret_cast<SetState>(GetProcAddress(module, "XInputSetState"));
     HANDLE timer = nullptr;
-    return setState && CreateTimerQueueTimer(&timer, nullptr, watchdog, nullptr,
-                                            40, 40, WT_EXECUTEDEFAULT);
+    return CreateTimerQueueTimer(&timer, nullptr, watchdog, nullptr,
+                                 40, 40, WT_EXECUTEDEFAULT);
   }();
   if (!ready)
     return;
@@ -89,21 +76,27 @@ void driveMotors(int slot, MotorLevels levels, HWND window, bool diagnostic) {
     return;
   }
   const auto now = GetTickCount64();
+  if (slot == declinedSlot && now - declinedAt < 1000) {
+    ReleaseSRWLockExclusive(&motorsLock);
+    return;
+  }
   if (motorSlot != slot)
     clearMotors();
   lastCommand = now;
   if (rumbleWriteDue(motorSlot >= 0, motorLevelsSent, levels, now - lastWrite)) {
-    XINPUT_VIBRATION vibration{levels.left, levels.right};
-    const DWORD result = setState(slot, &vibration);
+    const DWORD result = setControllerVibration(slot, levels.left, levels.right);
     if (diagnostic && motorSlot != slot)
-      log("Rumble start: slot=%d left=%u right=%u status=%lu", slot,
+      log("Rumble start: device=%lld left=%u right=%u status=%lu", static_cast<long long>(slot),
           levels.left, levels.right, result);
     if (result == ERROR_SUCCESS) {
+      declinedSlot = -1;
       motorSlot = slot;
       diagnosticLease = diagnostic;
       motorLevelsSent = levels;
       lastWrite = now;
     } else {
+      declinedSlot = slot;
+      declinedAt = now;
       clearMotors();
     }
   }

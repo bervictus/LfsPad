@@ -14,7 +14,9 @@ $resources=@(
     @{File='LfsPad.ini'; Name='LfsPad.ini'},
     @{File='tools\install.ps1'; Name='install.ps1'},
     @{File='tools\uninstall.ps1'; Name='uninstall.ps1'},
-    @{File='Dear-ImGui-LICENSE.txt'; Name='Dear-ImGui-LICENSE.txt'}
+    @{File='Dear-ImGui-LICENSE.txt'; Name='Dear-ImGui-LICENSE.txt'},
+    @{File='SDL-LICENSE.txt'; Name='SDL-LICENSE.txt'},
+    @{File='SDL-HIDAPI-LICENSE.txt'; Name='SDL-HIDAPI-LICENSE.txt'}
 )
 $resourceFlags=foreach ($resource in $resources) {
     $path=Join-Path $payloadRoot $resource.File

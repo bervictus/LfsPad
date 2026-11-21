@@ -1,5 +1,6 @@
 #include "runtime.hpp"
 #include "core.hpp"
+#include "controller_axes.hpp"
 #include "shortcuts.hpp"
 #include <cstdio>
 #include <cstring>
@@ -105,6 +106,7 @@ static LRESULT CALLBACK windowProc(HWND h, UINT message, WPARAM w, LPARAM l) {
     captureQuickInput.store(0);
     monitorInput.store(false);
     pedalSlot.store(-1);
+    playStationPedals.store(0);
   }
   if (message == WM_ACTIVATEAPP && !w) {
     assignmentFocusLost.store(true);
@@ -118,6 +120,7 @@ static LRESULT CALLBACK windowProc(HWND h, UINT message, WPARAM w, LPARAM l) {
     captureQuickInput.store(0);
     monitorInput.store(false);
     pedalSlot.store(-1);
+    playStationPedals.store(0);
   }
   return CallWindowProcA(previousWndProc, h, message, w, l);
 }
@@ -129,8 +132,8 @@ static bool initialized = false, cursorMode = false, settings = false,
             keyboard = false, manualKeyboard = false, upper = false,
             symbols = false;
 static bool adjustingSlider = false;
-static int selected = -1, keyRow = 0, keyCol = 0, settingRow = 0,
-           activeSlot = -1;
+static int selected = -1, keyRow = 0, keyCol = 0, settingRow = 0;
+static ControllerId activeSlot = -1;
 static std::vector<Item> items;
 static int mainMenuInitial = -1, raceFinishItem = -1, raceResumeItem = -1;
 static int optionsInitial = -1;
@@ -178,6 +181,11 @@ static constexpr std::array<std::uint16_t, 10> physical = {
     XINPUT_GAMEPAD_LEFT_THUMB};
 static const char *buttonNames[] = {"A",  "B",     "X",    "Y",  "LB",
                                     "RB", "Start", "Back", "R3", "L3"};
+static const char *playStationButtons[] = {"Çarpı", "Daire", "Kare", "Üçgen", "L1",
+                                           "R1", "Options", "Select", "R3", "L3"};
+static const char *buttonCaption(int index) {
+  return isPlayStationController(activeSlot) ? playStationButtons[index] : buttonNames[index];
+}
 static const wchar_t *bindingKeys[] = {
     L"Confirm", L"Back", L"Secondary",        L"Keyboard",  L"PreviousTab",
     L"NextTab", L"Menu", L"SettingsModifier", L"CursorMode"};
@@ -192,7 +200,7 @@ static const char *actionNames[] = {"Onay",
                                     "İmleç modu"};
 static std::uint16_t binding(Action a) { return physical[cfg.bindings[a]]; }
 static const char *bindingName(Action a) {
-  return buttonNames[cfg.bindings[a]];
+  return buttonCaption(cfg.bindings[a]);
 }
 static constexpr int firstBindingSetting = 3, quickMenuSetting = 12,
                      monitorSetting = 13, shortcutSetting = 14,
@@ -201,6 +209,9 @@ static bool isBindingSetting() {
   return settingRow >= firstBindingSetting && settingRow < quickMenuSetting;
 }
 static const char *quickButtons[] = {"Kapalı", "Back", "L3", "R3"};
+static const char *quickButtonCaption() {
+  return cfg.quickButton == 1 ? buttonCaption(7) : quickButtons[cfg.quickButton];
+}
 static const std::uint16_t quickMasks[] = {
     0, XINPUT_GAMEPAD_BACK, XINPUT_GAMEPAD_LEFT_THUMB, XINPUT_GAMEPAD_RIGHT_THUMB};
 static std::wstring ini;
@@ -211,7 +222,7 @@ static void loadConfig() {
   ini = path(L"LfsPad.ini");
   cfg.slot = std::clamp(
       (int)GetPrivateProfileIntW(L"Input", L"Controller", 0, ini.c_str()) - 1,
-      -1, 3);
+      -1, playStationPreference);
   cfg.deadzone = std::clamp((int)GetPrivateProfileIntW(
                                 L"Input", L"DeadzonePercent", 24, ini.c_str()),
                             10, 45) /
@@ -968,7 +979,7 @@ static void drawKeyboard(float width, float height) {
 static void adjustSetting(int direction) {
   switch (settingRow) {
   case 0:
-    cfg.slot = (cfg.slot + 1 + direction + 5) % 5 - 1;
+    cfg.slot = (cfg.slot + 1 + direction + 6) % 6 - 1;
     missingSlot = false;
     break;
   case 1:
@@ -1034,24 +1045,32 @@ static void drawShortcutEditor(float l, float t, float w) {
     label(l + w * .36f, y + 11,
           row == 0 ? menu.label : menu.targets[directions[row - 1]].label);
   }
-  label(l + 22, t + 342, "D-pad: seç / değiştir   X: menüyü sıfırla");
-  label(l + 22, t + 374, "A: ayarlara uygula   B: iptal");
+  char hint[128];
+  std::snprintf(hint, sizeof(hint), "D-pad: seç / değiştir   %s: menüyü sıfırla",
+                buttonCaption(2));
+  label(l + 22, t + 342, hint);
+  std::snprintf(hint, sizeof(hint), "%s: ayarlara uygula   %s: iptal",
+                buttonCaption(0), buttonCaption(1));
+  label(l + 22, t + 374, hint);
 }
 static void drawSettings(float l, float t, float w) {
   panel(l, t, l + w, t + settingsHeight);
   label(l + 22, t + 16, "LFS KONTROLCÜ AYARLARI");
   char values[settingCount][100];
-  std::snprintf(values[0], 80, "Kontrolcü: %s", cfg.slot < 0 ? "Otomatik" : "");
-  if (cfg.slot >= 0)
+  if (cfg.slot == playStationPreference)
+    std::snprintf(values[0], 80, "Kontrolcü: PlayStation / USB adaptör");
+  else if (cfg.slot >= 0)
     std::snprintf(values[0], 80, "Kontrolcü: %d", cfg.slot + 1);
+  else
+    std::snprintf(values[0], 80, "Kontrolcü: Otomatik");
   std::snprintf(values[1], 80, "Analog ölü bölgesi: %d%%",
                 int(cfg.deadzone * 100 + .5f));
   std::snprintf(values[2], 80, "İmleç hızı: %.0f", cfg.cursorSpeed);
   for (int i = 0; i < 9; ++i)
     std::snprintf(values[i + firstBindingSetting], 100, "%s: %s", actionNames[i],
-                  buttonNames[cfg.bindings[i]]);
+                  buttonCaption(cfg.bindings[i]));
   std::snprintf(values[quickMenuSetting], 100, "Hızlı işlem menüsü: %s",
-                quickButtons[cfg.quickButton]);
+                quickButtonCaption());
   std::snprintf(values[monitorSetting], 100, "Canlı giriş göstergesi: %s",
                 cfg.inputMonitor ? "Açık" : "Kapalı");
   std::snprintf(values[shortcutSetting], 100, "Kişisel menü kısayolları");
@@ -1075,16 +1094,23 @@ static void drawSettings(float l, float t, float w) {
           IM_COL32(255, 210, 90, 255));
     label(l + 22, t + 374, "D-pad sol: atamayı iptal et");
   } else if (settingRow == shortcutSetting) {
-    label(l + 22, t + 342, "D-pad: seç   A: kısayolları düzenle   B: iptal");
+    char hint[128];
+    std::snprintf(hint, sizeof(hint), "D-pad: seç   %s: kısayolları düzenle   %s: iptal",
+                  buttonCaption(0), buttonCaption(1));
+    label(l + 22, t + 342, hint);
   } else {
-    label(l + 22, t + 342,
-          isBindingSetting()
-              ? "D-pad: seç / değiştir   X: tuş ata   A: kaydet   B: iptal"
-              : "D-pad: seç / değiştir   A: kaydet   B: iptal");
+    char hint[128];
+    std::snprintf(hint, sizeof(hint), "D-pad: seç / değiştir   %s: kaydet   %s: iptal",
+                  buttonCaption(0), buttonCaption(1));
+    label(l + 22, t + 342, hint);
     if (isBindingSetting())
-      label(l + 22, t + 374, "Dolu bir tuş atanırsa iki eylemin tuşları değişir.");
+      std::snprintf(hint, sizeof(hint), "%s: tuş ata   Dolu atamalar yer değiştirir.",
+                    buttonCaption(2));
     else if (settingRow == rumbleSetting)
-      label(l + 22, t + 374, "X: titreşimi dene    %0: kapalı");
+      std::snprintf(hint, sizeof(hint), "%s: titreşimi dene    %%0: kapalı", buttonCaption(2));
+    else
+      hint[0] = 0;
+    label(l + 22, t + 374, hint);
   }
   if (missingSlot)
     label(l + 22, t + 320, "Seçilen kontrolcü bağlı değil.",
@@ -1124,7 +1150,7 @@ static void drawMeterButtons(float x, float y, float width,
   auto draw = ImGui::GetForegroundDrawList();
   for (int i = 0; i < 10; ++i) {
     const auto mask = 1u << i;
-    const char *name = buttonNames[meterButtonOrder[i]];
+    const char *name = buttonCaption(meterButtonOrder[i]);
     const float left = x + (i % 5) * cell, top = y + (i / 5) * 24.f;
     const bool pressed = down & mask;
     draw->AddRectFilled({left, top}, {left + cell - 3, top + 21},
@@ -1139,15 +1165,19 @@ static void drawMeterButtons(float x, float y, float width,
   }
 }
 static void drawInputMeter(float x, float y, const XINPUT_GAMEPAD &gamepad,
-                           bool connected, int slot, bool singlePad,
+                           bool connected, ControllerId slot, bool singlePad,
                            const DrivingInputSample &sample) {
   constexpr float column = (meterWidth - 44) * .5f;
   const float left = x + 14, right = x + meterWidth - 14 - column;
   panel(x, y, x + meterWidth, y + meterHeight);
   label(left, y + 12, "CANLI GİRİŞ");
   char slotText[48] = "Kontrolcü bekleniyor";
-  if (connected)
-    std::snprintf(slotText, sizeof(slotText), "Kontrolcü %d", slot + 1);
+  if (connected) {
+    if (isPlayStationController(slot))
+      std::snprintf(slotText, sizeof(slotText), "PlayStation / adaptör");
+    else
+      std::snprintf(slotText, sizeof(slotText), "Kontrolcü %d", int(slot) + 1);
+  }
   label(left, y + 42, slotText, meterActive);
   const char *status = !connected ? "Kontrolcü bağlı değil"
                        : !singlePad || sample.ambiguous ? "Birden çok cihaz"
@@ -1210,7 +1240,7 @@ static void drawQuickMenu(float width, float height, QuickAction selection) {
   option(l + w * .77f, t + 50, "Pit bilgisi →", QuickAction::Pit);
   char hint[96];
   std::snprintf(hint, sizeof(hint), "%s tuşunu bırak: uygula   |   Ortada: iptal",
-                quickButtons[cfg.quickButton]);
+                quickButtonCaption());
   label(width * .5f - ImGui::CalcTextSize(hint).x * .5f, t + 91, hint);
 }
 static void applyQuickAction(QuickAction action) {
@@ -1408,46 +1438,53 @@ void frame(IDXGISwapChain *swap) {
   // Native menus also poll keyboard state. A down/up in the same call can be
   // missed between frames, so hold generated control keys briefly.
   releaseKeys(!foreground);
-  using Poll = DWORD(WINAPI *)(DWORD, XINPUT_STATE *);
-  static Poll poll = (Poll)GetProcAddress(xinputModule(), "XInputGetState");
+  updatePlayStationControllers(time);
   XINPUT_STATE state{};
-  bool connected = false, lostPad = false;
-  static bool singlePad = false;
+  static int xinputCount = 0;
   static double checkPads = 0;
-  int oldSlot = activeSlot;
-  if (poll) {
-    if (inputSlot >= 0)
-      activeSlot = inputSlot;
-    if (activeSlot >= 0) {
-      const DWORD status = poll(activeSlot, &state);
-      connected = status == ERROR_SUCCESS;
-      lostPad = wasConnected && oldSlot == activeSlot &&
-                status == ERROR_DEVICE_NOT_CONNECTED;
-    }
-    if (!connected && inputSlot < 0) {
-      static double nextScan = 0;
-      if (time >= nextScan) {
-        nextScan = time + 1;
-        for (int i = 0; i < 4; ++i)
-          if (poll(i, &state) == ERROR_SUCCESS) {
-            activeSlot = i;
-            connected = true;
-            break;
-          }
+  const ControllerId oldSlot = activeSlot;
+  if (inputSlot >= 0 &&
+      (inputSlot != playStationPreference || !isPlayStationController(activeSlot)))
+    activeSlot = controllerForPreference(inputSlot, activeSlot);
+  const auto controllerStatus = readController(activeSlot, state);
+  bool connected = controllerStatus == ERROR_SUCCESS;
+  const bool lostPad = wasConnected && oldSlot == activeSlot &&
+                       controllerStatus == ERROR_DEVICE_NOT_CONNECTED;
+  if (!connected && inputSlot == playStationPreference) {
+    activeSlot = controllerForPreference(inputSlot, activeSlot);
+    connected = readController(activeSlot, state) == ERROR_SUCCESS;
+  }
+  if (!connected && inputSlot < 0) {
+    static double nextScan = 0;
+    if (time >= nextScan) {
+      nextScan = time + 1;
+      for (int i = 0; i < 4; ++i)
+        if (readXInputController(i, state) == ERROR_SUCCESS) {
+          activeSlot = i;
+          connected = true;
+          break;
+        }
+      if (!connected) {
+        activeSlot = controllerForPreference(playStationPreference, activeSlot);
+        connected = readController(activeSlot, state) == ERROR_SUCCESS;
       }
     }
   }
-  if (poll && connected && (time >= checkPads || !wasConnected || oldSlot != activeSlot)) {
+  if (time >= checkPads || connected != wasConnected || oldSlot != activeSlot) {
     checkPads = time + 1;
-    singlePad = true;
+    xinputCount = 0;
     for (int slot = 0; slot < 4; ++slot) {
       XINPUT_STATE other{};
-      if (slot != activeSlot && poll(slot, &other) == ERROR_SUCCESS)
-        singlePad = false;
+      if (readXInputController(slot, other) == ERROR_SUCCESS)
+        ++xinputCount;
     }
   }
+  const bool singlePad = connected && xinputCount + playStationControllerCount() == 1;
+  const bool playStation = isPlayStationController(activeSlot);
+  const auto playStationVidPid = playStation ? controllerVidPid(activeSlot) : 0;
   if (connected != wasConnected || oldSlot != activeSlot)
-    log("XInput connected=%d slot=%d", connected, activeSlot);
+    log("%s connected=%d device=%lld", playStation ? "Native gamepad" : "XInput",
+        connected, static_cast<long long>(activeSlot));
   std::uint32_t stamp = 2166136261;
   for (auto &item : items) {
     stamp = (stamp ^ item.signature) * 16777619;
@@ -1557,7 +1594,11 @@ void frame(IDXGISwapChain *swap) {
     pedalsArmed = false;
   if (pedalSource && !state.Gamepad.bLeftTrigger && !state.Gamepad.bRightTrigger)
     pedalsArmed = true;
-  pedalSlot.store(pedalSource && pedalsArmed ? activeSlot : -1);
+  pedalSlot.store(pedalSource && pedalsArmed && !playStation ? int(activeSlot) : -1);
+  const auto pedals = (std::uint64_t(state.Gamepad.bRightTrigger) << 40) |
+                      (std::uint64_t(state.Gamepad.bLeftTrigger) << 32) |
+                      playStationVidPid;
+  playStationPedals.store(pedalSource && pedalsArmed && playStationVidPid ? pedals : 0);
   const bool diagnosticAssign = (diagnostic & (1u << 16)) != 0;
   if (diagnostic)
     log("Diagnostic action mask=%03x", diagnostic);
@@ -1684,6 +1725,7 @@ void frame(IDXGISwapChain *swap) {
   const bool quickAllowed = foreground && !menu && !playingReplay && !recoveryConsumesConfirm &&
       sim.known && !replay.active && (sim.flags & 1) &&
       !(sim.flags & (8 | 16 | 256 | 32768)) && sim.mode == 0 && cfg.quickButton &&
+      (!playStation || knownPlayStationButtonLayout(playStationVidPid)) &&
       ((connected && singlePad) || cfg.diagnostics);
   const auto quickMask = quickMasks[cfg.quickButton];
   const float quickX = analog(state.Gamepad.sThumbRX, cfg.deadzone);
@@ -1743,7 +1785,7 @@ void frame(IDXGISwapChain *swap) {
                              : 0u);
   static double diagnosticOrbitUntil = 0;
   static double rumblePreviewUntil = 0;
-  static int rumblePreviewSlot = -1;
+  static ControllerId rumblePreviewSlot = -1;
   if (!viewerReady || contextChanged || lostAssignmentFocus)
     diagnosticOrbitUntil = 0;
   else if (diagnostic & (1u << 17))
@@ -1868,9 +1910,9 @@ void frame(IDXGISwapChain *swap) {
           bindingCapture.begin();
         } else if (settingRow == rumbleSetting &&
                    ((pressed & XINPUT_GAMEPAD_X) || diagnosticAssign)) {
-          const int slot = cfg.slot >= 0 ? cfg.slot : activeSlot;
+          const auto slot = cfg.slot >= 0 ? controllerForPreference(cfg.slot, activeSlot) : activeSlot;
           XINPUT_STATE candidate{};
-          missingSlot = slot < 0 || !poll || poll(slot, &candidate) != ERROR_SUCCESS;
+          missingSlot = readController(slot, candidate) != ERROR_SUCCESS;
           if (!missingSlot && cfg.rumbleStrength) {
             rumblePreviewSlot = slot;
             rumblePreviewUntil = time + .42;
@@ -1878,7 +1920,8 @@ void frame(IDXGISwapChain *swap) {
         } else if (confirm) {
           XINPUT_STATE candidate{};
           missingSlot = cfg.slot >= 0 &&
-                        (!poll || poll(cfg.slot, &candidate) != ERROR_SUCCESS);
+                        readController(controllerForPreference(cfg.slot, activeSlot),
+                                       candidate) != ERROR_SUCCESS;
           if (!missingSlot) {
             shortcutSaveFailed = !saveConfig();
             if (!shortcutSaveFailed) {
@@ -2140,7 +2183,7 @@ void frame(IDXGISwapChain *swap) {
         settingRow == rumbleSetting && cfg.rumbleStrength &&
         rumblePreviewSlot >= 0 && time < rumblePreviewUntil;
     XINPUT_STATE candidate{};
-    if (preview && poll && poll(rumblePreviewSlot, &candidate) == ERROR_SUCCESS) {
+    if (preview && readController(rumblePreviewSlot, candidate) == ERROR_SUCCESS) {
       const bool secondPulse = rumblePreviewUntil - time <= .21;
       driveMotors(rumblePreviewSlot, secondPulse ? motorLevels(.1f, .85f, cfg.rumbleStrength)
                                                 : motorLevels(.85f, .1f, cfg.rumbleStrength),
@@ -2195,8 +2238,8 @@ void frame(IDXGISwapChain *swap) {
       if (inList && !cursorMode)
         std::snprintf(pageHint, sizeof(pageHint), "   %s / %s: Sayfa",
                       bindingName(PreviousTab), bindingName(NextTab));
-      const char *settingsHint = garageViewer || adjustingSlider || pedalCalibration
-                                     ? "" : "   LT+RT tut: Ayarlar";
+      const char *settingsHint = garageViewer || adjustingSlider || pedalCalibration ? "" :
+                                 playStation ? "   L2+R2 tut: Ayarlar" : "   LT+RT tut: Ayarlar";
       std::snprintf(hint, sizeof(hint),
                     "LFS PAD  |  %s: Seç   %s: Geri   %s: Klavye   %s: %s%s%s%s%s",
                     bindingName(Confirm), bindingName(Back),

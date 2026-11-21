@@ -6,6 +6,7 @@
 #include <string>
 #include <windows.h>
 #include <winsock2.h>
+#include "controllers.hpp"
 #include "rumble.hpp"
 namespace pad {
 extern HMODULE self;
@@ -14,6 +15,7 @@ extern std::atomic<bool> captureRaceAxes;
 extern std::atomic<unsigned> captureQuickInput;
 extern std::atomic<bool> monitorInput;
 extern std::atomic<int> pedalSlot;
+extern std::atomic<std::uint64_t> playStationPedals;
 extern std::atomic<bool> stopping;
 std::wstring path(const wchar_t *name);
 void log(const char *fmt, ...);
@@ -24,8 +26,7 @@ void releaseTarget();
 void observeOutSim(const char *data, int size);
 DrivingTelemetry drivingTelemetry();
 DrivingTelemetry pollInSimRumble(bool enabled);
-HMODULE xinputModule();
-void driveMotors(int slot, MotorLevels levels, HWND window, bool diagnostic);
+void driveMotors(ControllerId slot, MotorLevels levels, HWND window, bool diagnostic);
 void stopMotors();
 struct DrivingInputSample {
   ULONGLONG tick = 0;

@@ -8,6 +8,12 @@
 - Yükleme günlüğünde 0.8C38 doğrulaması, RFS zinciri ve F710’a ayrı eksen sunumu görüldü.
 - Kurulum EXE’si geçici LFS dizininde ilk kurulum, aynı sürüm kontrolü, güncelleme ve kaldırma adımlarını tamamladı. Dizin yolundaki boşluk ve kesme işareti, farklı bir PowerShell modül yolu, uyumsuz LFS sürümü ve eski DLL ile ayarların korunması sınandı.
 
+### Kontrolcü güncellemesi
+
+- Sanal Sixaxis/DualShock 3, DualShock 4, DualSense ve DualSense Edge ile algılama, kaynak seçimi, menü tuşları, analog eksenler, ayrı tetik değerleri, titreşim çıkışı ve bağlantı kesilmesi sınandı.
+- Gerçek LFS 0.8C38 kurulumunda F710 X modunda algılandı. Gaz ve frenin eksen 6 ve 7 atamaları yeniden açılışta görüldü. Tanılama girdisiyle menü geçişi ve bağlı olmayan PlayStation kaynağının kaydının engellenmesi sınandı. RFS DLL zinciri korundu.
+- Fiziksel PlayStation USB ve Bluetooth denemeleri bekliyor.
+
 ## Geliştirme sürümü 0.2.10 — 21 Kasım 2026
 
 - 179 çekirdek kontrolü geçti. Kontroller beş menünün önceki varsayılanlarını, menüye özel eşlemeleri, hedef değişimini, boş ve görünmeyen hedefleri, geçersiz kayıtları ve düzenleyiciden çıkarken tutulan girişlerin bırakılmasını kapsıyor.

@@ -98,7 +98,7 @@ namespace LfsPadSetup
             layout.SetColumnSpan(footer, 2);
             var license = new LinkLabel
             {
-                Text = "Dear ImGui lisansı",
+                Text = "Üçüncü taraf lisansları",
                 AutoSize = true,
                 Anchor = AnchorStyles.Left,
             };
@@ -121,11 +121,7 @@ namespace LfsPadSetup
             install.Click += async delegate { await Apply(false); };
             remove.Click += async delegate { await Apply(true); };
             folder.TextChanged += delegate { RefreshActions(); };
-            license.LinkClicked += delegate
-            {
-                using (var reader = new StreamReader(GetResource("Dear-ImGui-LICENSE.txt")))
-                    MessageBox.Show(this, reader.ReadToEnd(), "Dear ImGui lisansı");
-            };
+            license.LinkClicked += delegate { ShowLicenses(); };
             FormClosing += delegate(object sender, FormClosingEventArgs e)
             {
                 if (busy && e.CloseReason == CloseReason.UserClosing)
@@ -216,6 +212,30 @@ namespace LfsPadSetup
             if (stream == null)
                 throw new InvalidOperationException("Kurulum dosyası eksik. EXE’yi yeniden indir.");
             return stream;
+        }
+
+        private void ShowLicenses()
+        {
+            var text = new System.Text.StringBuilder();
+            foreach (var file in new[] { "Dear-ImGui-LICENSE.txt", "SDL-LICENSE.txt", "SDL-HIDAPI-LICENSE.txt" })
+            {
+                using (var reader = new StreamReader(GetResource(file)))
+                    text.AppendLine(file).AppendLine().AppendLine(reader.ReadToEnd()).AppendLine();
+            }
+            using (var dialog = new Form { Text = "Üçüncü taraf lisansları",
+                                           StartPosition = FormStartPosition.CenterParent,
+                                           ClientSize = new Size(590, 450) })
+            {
+                dialog.Controls.Add(new TextBox
+                {
+                    Text = text.ToString(),
+                    ReadOnly = true,
+                    Multiline = true,
+                    ScrollBars = ScrollBars.Vertical,
+                    Dock = DockStyle.Fill
+                });
+                dialog.ShowDialog(this);
+            }
         }
 
         private static void Extract(string name, string destination)

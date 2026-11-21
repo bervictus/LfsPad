@@ -4,11 +4,15 @@
 
 F710'u **X** modunda kullanın. İlk bağlı XInput cihazı seçilir; seçim oyun içindeki ayarlardan değiştirilebilir.
 
+PlayStation veya SDL'nin tanıdığı bir USB adaptörü bağlıysa **Kontrolcü** satırından o kaynağı da seçebilirsin. PlayStation eşlemeleri **Çarpı/A**, **Daire/B**, **Kare/X**, **Üçgen/Y**, **L1/LB**, **R1/RB**, **Options/Start**, **Share veya Create/Back** şeklinde. Sixaxis ve DualShock 3'te son iki tuş **Start** ve **Select**.
+
+PS3 kolun resmi Sony `sixaxis.sys` sürücüsüyle bağlıysa `LfsPad.ini` dosyasında `[Input]` altında `PlayStation3SonyDriver=1` ayarla ve LFS’yi yeniden aç. Sürüşteki sağ analog hızlı işlem menüsü, düğme sırası tanınan Sony cihazlarında çalışır. [SDL PS3 sürücü ayarı](https://wiki.libsdl.org/SDL3/SDL_HINT_JOYSTICK_HIDAPI_PS3_SIXAXIS_DRIVER)
+
 ### Ayrı gaz ve fren eksenleri
 
 LFS’de **Seçenekler → Kontroller** ekranında **Gaz / fren eksenleri → ayrı** seç. **Eksenler / FF** sayfasında **Gaz** için **Kaydırıcı 0 (RT)**, **Fren** için **Kaydırıcı 1 (LT)** ata. İki eksenin yönü **düz** olmalı. Bu sayfada iki tetiği birlikte tutarak göstergeleri sınayabilirsin.
 
-Ayrı eksenler X modunda tek bir XInput kontrolcüsüyle çalışır. Oyunun eski birleşik ekseni de listede bulunur. Ayrı eksenleri devre dışı bırakmak için LFS’nin gaz ve fren ayarını birleşik moda döndür ve oyunu yeniden açmadan önce `LfsPad.ini` içindeki `[Input]` bölümüne `SplitTriggers=0` yaz.
+Ayrı kaydırıcılar tek bir etkin kontrolcü ve eşleşen DirectInput aygıtı ile kullanılır. Oyunun yerel eksenleri de listede bulunur. Yerel eksenlere dönmek için LFS’nin gaz ve fren atamalarını değiştir ve oyunu yeniden açmadan önce `LfsPad.ini` içindeki `[Input]` bölümüne `SplitTriggers=0` yaz.
 
 ### Varsayılan tuşlar
 

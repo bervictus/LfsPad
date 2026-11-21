@@ -1,4 +1,5 @@
 #include "core.hpp"
+#include "controller_axes.hpp"
 #include "runtime.hpp"
 #include <bcrypt.h>
 #include <cstddef>
@@ -19,6 +20,7 @@ std::atomic<bool> captureRaceAxes{false};
 std::atomic<unsigned> captureQuickInput{0};
 std::atomic<bool> monitorInput{false};
 std::atomic<int> pedalSlot{-1};
+std::atomic<std::uint64_t> playStationPedals{0};
 std::atomic<bool> stopping{false};
 std::wstring path(const wchar_t *name) {
   wchar_t p[32768];
@@ -180,7 +182,9 @@ struct Control {
 struct GamepadFormat {
   std::vector<Control> controls;
   GUID device{};
+  DWORD vidpid = 0;
   DWORD size = 0;
+  bool xinput = false;
   bool canSplitPedals = false, splitPedals = false;
   bool rangesKnown = false;
   bool gateLogged = false;
@@ -194,6 +198,10 @@ static constexpr std::array<DWORD, 2> pedalOffsets{
     offsetof(DIJOYSTATE2, rglSlider), offsetof(DIJOYSTATE2, rglSlider) + sizeof(LONG)};
 static constexpr DWORD pedalObject = DIDFT_ABSAXIS | DIDFT_MAKEINSTANCE(0x7ffe);
 static constexpr LONG pedalMinimum = 0, pedalMaximum = 65535;
+
+static bool supportedGamepad(const GamepadFormat &format) {
+  return format.xinput || isMappedPlayStationDevice(format.vidpid);
+}
 
 static bool hasPedalOffsets(const DIDATAFORMAT &format) {
   if (format.dwDataSize != sizeof(DIJOYSTATE2) ||
@@ -233,7 +241,8 @@ static HRESULT STDMETHODCALLTYPE enumObjectsHook(void *obj, LPDIENUMDEVICEOBJECT
     std::lock_guard<std::mutex> lock(hooksMutex);
     original = deviceHooks.at(*reinterpret_cast<void ***>(obj)).enumerate;
     const auto gamepad = gamepads.find(obj);
-    tryPedals = gamepad != gamepads.end() && gamepad->second.canSplitPedals;
+    tryPedals = gamepad != gamepads.end() && gamepad->second.canSplitPedals &&
+                supportedGamepad(gamepad->second);
   }
   const bool acceptsAxis = (flags == DIDFT_ALL || (flags & DIDFT_ABSAXIS)) &&
                           !(flags & (DIDFT_FFACTUATOR | DIDFT_FFEFFECTTRIGGER));
@@ -261,7 +270,7 @@ static HRESULT STDMETHODCALLTYPE enumObjectsHook(void *obj, LPDIENUMDEVICEOBJECT
     std::strcpy(slider.tszName, "LfsPad RT / LT");
     callback(&slider, context);
     if (first)
-      log("DirectInput split pedals: Slider 0=RT, Slider 1=LT");
+      log("DirectInput split pedals: Slider 0=throttle, Slider 1=brake");
   }
   return hr;
 }
@@ -326,15 +335,21 @@ static bool filterControl(const Control &control, bool buttons, bool axes,
   return axes || (buttons && !isAxis(control.kind)) || (control.quickMask & quick);
 }
 
-static GamepadFormat describeFormat(const DIDATAFORMAT &format) {
+static GamepadFormat describeFormat(const DIDATAFORMAT &format, const GamepadFormat &device) {
   GamepadFormat result;
   result.size = format.dwDataSize;
+  result.device = device.device;
+  result.vidpid = device.vidpid;
+  result.xinput = device.xinput;
+  const bool knownButtons = !device.xinput && knownPlayStationButtonLayout(device.vidpid);
   for (DWORD i = 0; i < format.dwNumObjs; ++i) {
     const auto &object = format.rgodf[i];
     Control control{object.dwOfs, ControlKind::Button};
     if (object.dwType & DIDFT_BUTTON) {
-      auto instance = DIDFT_GETINSTANCE(object.dwType);
-      if (instance < 10)
+      int instance = DIDFT_GETINSTANCE(object.dwType);
+      if (knownButtons)
+        instance = playStationButtonIndex(unsigned(instance));
+      if ((device.xinput || knownButtons) && instance >= 0 && instance < 10)
         control.quickMask = 1u << instance;
       if (control.offset < result.size)
         result.controls.push_back(control);
@@ -364,9 +379,11 @@ static GamepadFormat describeFormat(const DIDATAFORMAT &format) {
           control.meterAxis = MeterAxis::Steering;
         } else if (IsEqualGUID(*object.pguid, GUID_YAxis)) {
           control.quickMask = leftStickMask;
-        } else if (IsEqualGUID(*object.pguid, GUID_ZAxis)) {
+        } else if (IsEqualGUID(*object.pguid, GUID_ZAxis) && device.xinput) {
           control.meterAxis = MeterAxis::Triggers;
         }
+        if (!device.xinput && control.quickMask != leftStickMask)
+          control.quickMask = rightStickMask | triggerAxisMask;
       }
     } else {
       continue;
@@ -387,8 +404,7 @@ static HRESULT STDMETHODCALLTYPE formatHook(void *obj, LPCDIDATAFORMAT format) {
     std::lock_guard<std::mutex> lock(hooksMutex);
     auto gamepad = gamepads.find(obj);
     if (gamepad != gamepads.end()) {
-      auto description = describeFormat(*format);
-      description.device = gamepad->second.device;
+      auto description = describeFormat(*format, gamepad->second);
       static const bool splitEnabled = GetPrivateProfileIntW(
           L"Input", L"SplitTriggers", 1, path(L"LfsPad.ini").c_str()) != 0;
       description.canSplitPedals = splitEnabled && hasPedalOffsets(*format);
@@ -438,17 +454,30 @@ static void readAxisRanges(void *obj, GetProperty getProperty, GamepadFormat &fo
 
 static void writePedals(const GamepadFormat &format, void *data, bool suppressed,
                        DrivingInputSample &sample) {
-  const int slot = pedalSlot.load();
-  const bool uniqueDevice = std::all_of(gamepads.begin(), gamepads.end(), [&](const auto &entry) {
-    return IsEqualGUID(format.device, entry.second.device);
-  });
-  using Poll = DWORD(WINAPI *)(DWORD, XINPUT_STATE *);
-  static const auto poll = reinterpret_cast<Poll>(GetProcAddress(xinputModule(), "XInputGetState"));
-  XINPUT_STATE state{};
-  const bool active = !suppressed && uniqueDevice && slot >= 0 && poll &&
-                      poll(slot, &state) == ERROR_SUCCESS;
-  const auto throttle = pedalAxis(state.Gamepad.bRightTrigger, pedalMinimum, pedalMaximum, !active);
-  const auto brake = pedalAxis(state.Gamepad.bLeftTrigger, pedalMinimum, pedalMaximum, !active);
+  std::uint8_t right = 0, left = 0;
+  if (!suppressed) {
+    const bool uniqueDevice = std::none_of(gamepads.begin(), gamepads.end(), [&](const auto &entry) {
+      const auto &other = entry.second;
+      const bool sameFamily = format.xinput ? other.xinput
+                                           : !other.xinput && other.vidpid == format.vidpid;
+      return sameFamily && !IsEqualGUID(format.device, other.device);
+    });
+    if (uniqueDevice && format.xinput) {
+      XINPUT_STATE state{};
+      if (readXInputController(pedalSlot.load(), state) == ERROR_SUCCESS) {
+        right = state.Gamepad.bRightTrigger;
+        left = state.Gamepad.bLeftTrigger;
+      }
+    } else if (uniqueDevice) {
+      const auto pedals = playStationPedals.load();
+      if (pedals && std::uint32_t(pedals) == format.vidpid) {
+        right = std::uint8_t(pedals >> 40);
+        left = std::uint8_t(pedals >> 32);
+      }
+    }
+  }
+  const auto throttle = pedalAxis(right, pedalMinimum, pedalMaximum, false);
+  const auto brake = pedalAxis(left, pedalMinimum, pedalMaximum, false);
   auto *base = static_cast<unsigned char *>(data);
   std::memcpy(base + pedalOffsets[0], &throttle, sizeof(throttle));
   std::memcpy(base + pedalOffsets[1], &brake, sizeof(brake));
@@ -474,6 +503,8 @@ static HRESULT STDMETHODCALLTYPE stateHook(void *obj, DWORD size, void *data) {
     if (gamepad == gamepads.end())
       return hr;
     auto &format = gamepad->second;
+    if (!supportedGamepad(format))
+      return hr;
     if (!(axes || buttons || quick || observe || format.splitPedals))
       return hr;
     if (format.size == size && !format.controls.empty()) {
@@ -554,7 +585,7 @@ static HRESULT STDMETHODCALLTYPE dataHook(void *obj, DWORD size, void *data,
        size == sizeof(DIDEVICEOBJECTDATA_DX3))) {
     std::lock_guard<std::mutex> lock(hooksMutex);
     auto gamepad = gamepads.find(obj);
-    if (gamepad == gamepads.end())
+    if (gamepad == gamepads.end() || !supportedGamepad(gamepad->second))
       return hr;
     if (axes) {
       *count = 0;
@@ -603,13 +634,17 @@ static HRESULT STDMETHODCALLTYPE createHook(void *obj, REFGUID guid, void **out,
     DIPROPDWORD vid{};
     vid.diph = {sizeof(vid), sizeof(DIPROPHEADER), 0, DIPH_DEVICE};
     // F710 X-mode fallback for drivers that omit the IG_ path marker.
-    xinput |= SUCCEEDED(dev->GetProperty(DIPROP_VIDPID, &vid.diph)) &&
-              vid.dwData == 0xC21F046D;
+    const bool hasId = SUCCEEDED(dev->GetProperty(DIPROP_VIDPID, &vid.diph));
+    xinput |= hasId && vid.dwData == 0xC21F046D;
     auto table = *reinterpret_cast<void ***>(*out);
     std::lock_guard<std::mutex> l(hooksMutex);
     gamepads.erase(*out);
-    if (xinput)
-      gamepads[*out].device = guid;
+    if (xinput || (hasId && vid.dwData)) {
+      auto &format = gamepads[*out];
+      format.device = guid;
+      format.xinput = xinput;
+      format.vidpid = hasId ? vid.dwData : 0;
+    }
     if (table[9] != (void *)stateHook) {
       deviceHooks[table] = {(GetState)table[9], (GetData)table[10],
                             (SetFormat)table[11], (SetProperty)table[6],
@@ -857,6 +892,7 @@ BOOL WINAPI DllMain(HINSTANCE h, DWORD reason, void *) {
     pad::captureQuickInput.store(0);
     pad::monitorInput.store(false);
     pad::pedalSlot.store(-1);
+    pad::playStationPedals.store(0);
   }
   return TRUE;
 }
