@@ -4,11 +4,15 @@
 
 Use a controller to start a race, change your setup in the garage and get back on track in Live for Speed. LfsPad loads with the game and works with **LFS 0.8C38 for 32-bit Windows**.
 
+Version 0.3.0 brings a controller steering assist inspired by LFS’s stabilised keyboard mode. You keep full lock when parking, and the assist can countersteer during a slide. The steering range opens up when you turn the stick to catch the slide yourself. [Controller guide](CONTROLS.md)
+
 ## Install or update
 
-1. Close LFS and [download the 0.2.0 installer with the RFS fix](https://github.com/bervictus/LfsPad/releases/download/v0.2.0/LfsPad-0.2.0-rfs-setup.exe).
+1. Close LFS and open the `-rfs-setup.exe` installer for your version. Published packages are on the [releases page](https://github.com/bervictus/LfsPad/releases).
 2. Choose **English** or **Türkçe** at the top right and click **Next**. Check the detected folder or use **Browse** to select the folder containing `LFS.exe`.
 3. Click **Install**, or **Update** if LfsPad is already installed. Then launch LFS as usual.
+
+Download pre-releases from GitHub and run their installer to update. Automatic updates install stable releases only.
 
 If you installed the first 0.2.0 build, run the new installer once and choose **Update**. This moves LfsPad to a separate file so RFS can update its own loader. To uninstall, open the same installer, select the same folder and click **Uninstall LfsPad**. Updates keep your settings. Setup uses the InSim port already set in the game’s startup script.
 

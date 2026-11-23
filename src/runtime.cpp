@@ -2,6 +2,9 @@
 #include "core.hpp"
 #include "controller_axes.hpp"
 #include "shortcuts.hpp"
+#include "controller_check.hpp"
+#include "player_profiles.hpp"
+#include "steering_help.hpp"
 #include <cstdio>
 #include <cstring>
 #include <imgui.h>
@@ -104,6 +107,7 @@ static LRESULT CALLBACK windowProc(HWND h, UINT message, WPARAM w, LPARAM l) {
     releaseMouse();
     captureButtons.store(false);
     captureRaceAxes.store(false);
+    steeringAssist.store(0);
     diagnosticDrivingPov.store(0xffffffff);
     captureQuickInput.store(0);
     monitorInput.store(false);
@@ -119,6 +123,7 @@ static LRESULT CALLBACK windowProc(HWND h, UINT message, WPARAM w, LPARAM l) {
     releaseMouse();
     captureButtons.store(false);
     captureRaceAxes.store(false);
+    steeringAssist.store(0);
     diagnosticDrivingPov.store(0xffffffff);
     captureQuickInput.store(0);
     monitorInput.store(false);
@@ -132,10 +137,14 @@ static ID3D11Device *device = nullptr;
 static ID3D11DeviceContext *context = nullptr;
 static ID3D11RenderTargetView *target = nullptr;
 static bool initialized = false, cursorMode = false, settings = false,
-            keyboard = false, manualKeyboard = false, upper = false,
-            symbols = false;
+            keyboard = false, manualKeyboard = false;
 static bool adjustingSlider = false;
-static int selected = -1, keyRow = 0, keyCol = 0, settingRow = 0, settingsTab = 0;
+static int selected = -1, settingRow = 0, settingsTab = 0;
+struct KeyboardSelection {
+  int row = 0, col = 0;
+  bool upper = false, symbols = false;
+};
+static KeyboardSelection gameKeys, profileKeys;
 static bool rfsCursor = false;
 static ControllerId activeSlot = -1;
 static bool playStationCaptions = false;
@@ -160,18 +169,14 @@ static bool shortcutEditor = false, settingsSaveFailed = false;
 static int shortcutEditMenu = 0, shortcutEditRow = 0;
 static ShortcutMappings shortcutEditDraft, savedShortcuts;
 static ShortcutDirections directionsBeforeEdit;
-struct Config {
+static PlayerProfiles profiles;
+static bool profileNaming = false;
+static std::wstring profileNameDraft;
+struct Config : PlayerInputSettings {
   Language language = Language::Turkish;
   int slot = -1;
-  float deadzone = .24f, cursorSpeed = 900.f;
-  std::array<int, 9> bindings{0, 1, 2, 3, 4, 5, 6, 7, 8};
   bool diagnostics = false;
-  int quickButton = 1;
-  bool inputMonitor = false;
-  bool controllerIcons = true;
   bool autoUpdate = true;
-  int rumbleStrength = 50;
-  ShortcutMappings shortcuts;
 } cfg;
 static const char *text(const char *turkish, const char *english) {
   return LocalizedText{turkish, english}.get(cfg.language);
@@ -217,10 +222,12 @@ static const char *bindingName(Action a) {
   return buttonCaption(cfg.bindings[a]);
 }
 enum SettingRow {
-  controllerSetting, languageSetting, controllerIconsSetting, autoUpdateSetting,
+  controllerSetting, profileSetting, languageSetting, controllerIconsSetting, autoUpdateSetting,
+  controllerCheckSetting,
   deadzoneSetting, cursorSpeedSetting, firstBindingSetting,
   quickMenuSetting = firstBindingSetting + 9, monitorSetting, rumbleSetting,
-  shortcutSetting, settingCount
+  steeringSetting, steeringHelpSetting, clutchSetting,
+  shortcutSetting, shortcutUsageSetting, settingCount
 };
 struct SettingsTab {
   LocalizedText label;
@@ -243,9 +250,58 @@ static const std::uint16_t quickMasks[] = {
     0, XINPUT_GAMEPAD_BACK, XINPUT_GAMEPAD_LEFT_THUMB, XINPUT_GAMEPAD_RIGHT_THUMB};
 static std::wstring ini;
 static constexpr wchar_t shortcutSection[] = L"MenuShortcuts";
+static constexpr wchar_t profileSection[] = L"PlayerProfiles";
+
+static std::wstring profileKeyPrefix(int slot) {
+  return L"P" + std::to_wstring(slot + 1) + L".";
+}
+
+static PlayerInputSettings readPlayerInput(const wchar_t *section, const wchar_t *shortcutsSection,
+                                           const std::wstring &prefix) {
+  PlayerInputSettings result;
+  const auto get = [&](const wchar_t *key, int fallback) {
+    return int(GetPrivateProfileIntW(section, (prefix + key).c_str(), fallback, ini.c_str()));
+  };
+  result.deadzone = std::clamp(get(L"DeadzonePercent", 24), 10, 45) / 100.f;
+  result.cursorSpeed = float(std::clamp(get(L"CursorSpeed", 900), 200, 2400));
+  for (int i = 0; i < int(result.bindings.size()); ++i)
+    rebind(result.bindings, i, std::clamp(get(bindingKeys[i], i), 0, int(physical.size()) - 1));
+  result.quickButton = std::clamp(get(L"QuickMenu", 1), 0, 3);
+  result.controllerIcons = get(L"ControllerIcons", 1) != 0;
+  result.inputMonitor = get(L"InputMonitor", 0) != 0;
+  result.rumbleStrength = std::clamp(get(L"RumbleStrength", 50), 0, 100);
+  result.steeringCurve = SteeringCurve(std::clamp(get(L"SteeringCurve", 0), 0, 2));
+  result.steeringHelp = SteeringHelp(std::clamp(get(L"SpeedSteering", int(result.steeringHelp)), 0, 2));
+  result.shortcutSequential = get(L"ShortcutSequential", 0) == 1;
+  for (std::size_t i = 0; i < shortcutMenus.size(); ++i) {
+    wchar_t value[128]{};
+    const auto &menu = shortcutMenus[i];
+    const auto length = GetPrivateProfileStringW(shortcutsSection, (prefix + menu.key).c_str(),
+                                                  L"", value, _countof(value), ini.c_str());
+    if (length < _countof(value) - 1)
+      result.shortcuts[i] = parseShortcutDirections(menu, value);
+  }
+  return result;
+}
+
+template <typename Put>
+static void writePlayerInput(const PlayerInputSettings &input, Put put) {
+  put(L"DeadzonePercent", int(input.deadzone * 100 + .5f));
+  put(L"CursorSpeed", int(input.cursorSpeed));
+  put(L"QuickMenu", input.quickButton);
+  put(L"InputMonitor", input.inputMonitor);
+  put(L"ControllerIcons", input.controllerIcons);
+  put(L"RumbleStrength", input.rumbleStrength);
+  put(L"SteeringCurve", int(input.steeringCurve));
+  put(L"SpeedSteering", int(input.steeringHelp));
+  put(L"ShortcutSequential", input.shortcutSequential);
+  for (std::size_t i = 0; i < input.bindings.size(); ++i)
+    put(bindingKeys[i], input.bindings[i]);
+}
+
 static void loadConfig() {
   missingSlot = false;
-  shortcutEditor = settingsSaveFailed = false;
+  shortcutEditor = profileNaming = settingsSaveFailed = false;
   ini = path(L"LfsPad.ini");
   wchar_t language[16]{};
   GetPrivateProfileStringW(L"General", L"Language", L"tr", language,
@@ -256,44 +312,74 @@ static void loadConfig() {
   cfg.slot = std::clamp(
       (int)GetPrivateProfileIntW(L"Input", L"Controller", 0, ini.c_str()) - 1,
       -1, nativePreference);
-  cfg.deadzone = std::clamp((int)GetPrivateProfileIntW(
-                                L"Input", L"DeadzonePercent", 24, ini.c_str()),
-                            10, 45) /
-                 100.f;
-  cfg.cursorSpeed = (float)std::clamp(
-      (int)GetPrivateProfileIntW(L"Input", L"CursorSpeed", 900, ini.c_str()),
-      200, 2400);
-  cfg.bindings = {0, 1, 2, 3, 4, 5, 6, 7, 8};
-  // Swaps also repair duplicate or malformed hand-edited mappings.
-  for (int i = 0; i < 9; ++i) {
-    int b = std::clamp(
-        (int)GetPrivateProfileIntW(L"Input", bindingKeys[i], i, ini.c_str()), 0,
-        int(physical.size()) - 1);
-    rebind(cfg.bindings, i, b);
-  }
   cfg.diagnostics =
       GetPrivateProfileIntW(L"General", L"Diagnostics", 0, ini.c_str()) != 0;
   diagnosticsEnabled = cfg.diagnostics;
-  cfg.quickButton = std::clamp(int(GetPrivateProfileIntW(
-      L"Input", L"QuickMenu", 1, ini.c_str())), 0, 3);
-  cfg.controllerIcons =
-      GetPrivateProfileIntW(L"Input", L"ControllerIcons", 1, ini.c_str()) != 0;
-  cfg.inputMonitor =
-      GetPrivateProfileIntW(L"Input", L"InputMonitor", 0, ini.c_str()) != 0;
-  cfg.rumbleStrength = std::clamp(int(GetPrivateProfileIntW(
-      L"Input", L"RumbleStrength", 50, ini.c_str())), 0, 100);
-  for (std::size_t i = 0; i < shortcutMenus.size(); ++i) {
-    wchar_t value[128]{};
-    auto length = GetPrivateProfileStringW(shortcutSection, shortcutMenus[i].key,
-                                           L"", value, 128, ini.c_str());
-    cfg.shortcuts[i] = length < 127
-                          ? parseShortcutDirections(shortcutMenus[i], value)
-                          : defaultShortcutDirections;
+  profiles = {};
+  for (int i = 0; i < PlayerProfiles::count; ++i) {
+    const auto prefix = profileKeyPrefix(i);
+    auto &profile = profiles.slots[i];
+    if (GetPrivateProfileIntW(profileSection, (prefix + L"Used").c_str(), 0, ini.c_str()) != 1)
+      continue;
+    profile.used = true;
+    profile.input = readPlayerInput(profileSection, profileSection, prefix);
+    wchar_t encoded[profileNameLimit * 4 + 2]{};
+    GetPrivateProfileStringW(profileSection, (prefix + L"NameHex").c_str(), L"", encoded,
+                             _countof(encoded), ini.c_str());
+    profile.name = decodeProfileName(encoded);
   }
+  profiles.enabled = profiles.slots[0].used;
+  const auto active = GetPrivateProfileIntW(profileSection, L"Active", 1, ini.c_str());
+  if (profiles.enabled && active >= 1 && active <= PlayerProfiles::count &&
+      profiles.slots[active - 1].used)
+    profiles.active = int(active - 1);
+  if (!profiles.enabled) {
+    profiles = {};
+    profiles.current().input = readPlayerInput(L"Input", shortcutSection, L"");
+    profiles.current().used = true;
+  }
+  static_cast<PlayerInputSettings &>(cfg) = profiles.current().input;
   savedShortcuts = cfg.shortcuts;
   inputSlot = cfg.slot;
 }
+
+static bool savePlayerProfiles() {
+  profiles.current().input = cfg;
+  profiles.current().used = true;
+  std::wstring records;
+  const auto append = [&](const std::wstring &key, const std::wstring &value) {
+    records += key;
+    records += L'=';
+    records += value;
+    records += wchar_t{};
+  };
+  append(L"Active", std::to_wstring(profiles.active + 1));
+  for (int i = 0; i < PlayerProfiles::count; ++i) {
+    const auto &profile = profiles.slots[i];
+    if (!profile.used)
+      continue;
+    const auto prefix = profileKeyPrefix(i);
+    append(prefix + L"Used", L"1");
+    if (!profile.name.empty())
+      append(prefix + L"NameHex", encodeProfileName(profile.name));
+    writePlayerInput(profile.input, [&](const wchar_t *key, int value) {
+      append(prefix + key, std::to_wstring(value));
+    });
+    for (std::size_t j = 0; j < shortcutMenus.size(); ++j) {
+      const auto &menu = shortcutMenus[j];
+      append(prefix + menu.key, formatShortcutDirections(menu, profile.input.shortcuts[j]));
+    }
+  }
+  return WritePrivateProfileSectionW(profileSection, records.c_str(), ini.c_str()) != 0;
+}
+
 static bool saveConfig() {
+  if (!WritePrivateProfileStringW(L"Input", L"Controller", std::to_wstring(cfg.slot + 1).c_str(), ini.c_str()) ||
+      !WritePrivateProfileStringW(L"General", L"Language", languageKey(cfg.language), ini.c_str()) ||
+      !WritePrivateProfileStringW(L"General", L"AutoUpdate", cfg.autoUpdate ? L"1" : L"0", ini.c_str()))
+    return false;
+  if (profiles.enabled)
+    return savePlayerProfiles();
   if (cfg.shortcuts != savedShortcuts) {
     std::wstring records;
     for (std::size_t i = 0; i < shortcutMenus.size(); ++i) {
@@ -312,18 +398,8 @@ static bool saveConfig() {
     if (!WritePrivateProfileStringW(L"Input", k, std::to_wstring(v).c_str(), ini.c_str()))
       inputSaved = false;
   };
-  put(L"Controller", cfg.slot + 1);
-  put(L"DeadzonePercent", int(cfg.deadzone * 100 + .5f));
-  put(L"CursorSpeed", int(cfg.cursorSpeed));
-  put(L"QuickMenu", cfg.quickButton);
-  put(L"InputMonitor", cfg.inputMonitor);
-  put(L"ControllerIcons", cfg.controllerIcons);
-  put(L"RumbleStrength", cfg.rumbleStrength);
-  for (int i = 0; i < 9; ++i)
-    put(bindingKeys[i], cfg.bindings[i]);
-  return inputSaved &&
-         WritePrivateProfileStringW(L"General", L"Language", languageKey(cfg.language), ini.c_str()) &&
-         WritePrivateProfileStringW(L"General", L"AutoUpdate", cfg.autoUpdate ? L"1" : L"0", ini.c_str());
+  writePlayerInput(cfg, put);
+  return inputSaved;
 }
 static void checkForUpdate() {
   if (!cfg.autoUpdate)
@@ -800,6 +876,9 @@ static int findShortcutItem(const ShortcutTarget &target, uintptr_t owner) {
   }
   return -1;
 }
+static const ShortcutMenu &shortcutMenu(ShortcutScreen screen) {
+  return shortcutMenus[std::size_t(screen)];
+}
 static ShortcutScreen findShortcutScreen(uintptr_t modal, bool raceMenu) {
   if (!modal)
     return ShortcutScreen::None;
@@ -811,10 +890,93 @@ static ShortcutScreen findShortcutScreen(uintptr_t modal, bool raceMenu) {
     return ShortcutScreen::Options;
   if (garageRoot)
     return ShortcutScreen::Garage;
-  const auto &garage = shortcutMenus[std::size_t(ShortcutScreen::SinglePlayer)].targets[1];
+  const auto &garage = shortcutMenu(ShortcutScreen::SinglePlayer).targets[1];
   return findShortcutItem(garage, modal) >= 0 ? ShortcutScreen::SinglePlayer
                                               : ShortcutScreen::None;
 }
+static constexpr ShortcutTarget axesTab{L"axes", axesLabel, 0x10aba0, 0, 5};
+static constexpr ShortcutTarget driverTab{L"driver", {"Sürücü", "Driver"}, 0x111760, 4, 6};
+
+static int nativeClutchItem(uintptr_t modal) {
+  // 0.8C38 exposes this toggle only when the current car and gearbox support it.
+  const ShortcutTarget toggle{L"auto-clutch", clutchLabel, 0xc8eb0, 23,
+                              unsigned(uintptr_t(imageBase) + 0x2805b8)};
+  return findShortcutItem(toggle, modal);
+}
+
+static bool editableGarageColourSelected() {
+  const auto &colours = garageList(ListKind::Colours).entries;
+  return std::any_of(colours.begin(), colours.end(),
+                     [](const ListItem &colour) { return items[colour.item].active; });
+}
+
+static int favoriteItem(FavoritePage destination, ShortcutScreen source, uintptr_t modal) {
+  switch (destination) {
+  case FavoritePage::Options:
+    if (source == ShortcutScreen::Main)
+      return findShortcutItem(shortcutMenu(source).targets[2], modal);
+    if (source == ShortcutScreen::Race)
+      return findShortcutItem(shortcutMenu(source).targets[3], modal);
+    break;
+  case FavoritePage::Controls: {
+    const auto &menu = shortcutMenu(ShortcutScreen::Options);
+    return findShortcutItem(menu.targets[1], uintptr_t(imageBase) + menu.ownerRva);
+  }
+  case FavoritePage::Driver:
+    return findShortcutItem(driverTab, uintptr_t(imageBase) +
+                                      shortcutMenu(ShortcutScreen::Options).ownerRva);
+  case FavoritePage::Axes:
+    return findShortcutItem(axesTab, modal);
+  case FavoritePage::Colours:
+    if (editableGarageColourSelected())
+      return findShortcutItem(shortcutMenu(ShortcutScreen::Garage).targets[3], modal);
+    break;
+  case FavoritePage::Skins:
+    if (editableGarageColourSelected())
+      return findShortcutItem(shortcutMenu(ShortcutScreen::Garage).targets[5], modal);
+    break;
+  default:
+    break;
+  }
+  return -1;
+}
+
+static FavoritePage favoritePage(Favorite favorite, ShortcutScreen source,
+                                 uintptr_t sourceOwner, ShortcutScreen screen,
+                                 uintptr_t modal) {
+  if (items.empty())
+    return FavoritePage::Transition;
+  if (favorite == Favorite::Skins) {
+    if (garageSkins)
+      return FavoritePage::Skins;
+    if (screen != ShortcutScreen::Garage || modal != sourceOwner)
+      return FavoritePage::Other;
+    const int colours = favoriteItem(FavoritePage::Colours, source, modal);
+    return colours >= 0 && items[colours].active ? FavoritePage::Colours
+                                                 : FavoritePage::Garage;
+  }
+  if (screen == source && screen != ShortcutScreen::Options && modal == sourceOwner)
+    return FavoritePage::Entry;
+  // Options draws the current page before its fixed-owner category bar. The
+  // modal points to the page itself and changes when a category is selected.
+  if (screen != ShortcutScreen::Options || optionsInitial < 0 ||
+      !items[optionsInitial].active)
+    return FavoritePage::Other;
+  const auto *native = reinterpret_cast<const NativeItem *>(imageBase + 0x28ca20);
+  const bool ownsPage = std::any_of(items.begin(), items.begin() + optionsInitial,
+      [&](const Item &item) { return native[item.id].owner == modal; });
+  if (!ownsPage)
+    return FavoritePage::Other;
+  if (favorite == Favorite::Clutch) {
+    const int driver = favoriteItem(FavoritePage::Driver, source, modal);
+    return driver >= 0 && items[driver].active ? FavoritePage::Driver : FavoritePage::Options;
+  }
+  const int controls = favoriteItem(FavoritePage::Controls, source, modal);
+  if (controls >= 0 && items[controls].active)
+    return pedalCalibration ? FavoritePage::Axes : FavoritePage::Controls;
+  return FavoritePage::Options;
+}
+
 static ResolvedShortcuts findMenuShortcuts(ShortcutScreen screen, uintptr_t modal) {
   if (screen == ShortcutScreen::None)
     return {};
@@ -822,6 +984,10 @@ static ResolvedShortcuts findMenuShortcuts(ShortcutScreen screen, uintptr_t moda
   const auto &menu = shortcutMenus[index];
   const auto owner = menu.ownerRva ? uintptr_t(imageBase) + menu.ownerRva : modal;
   return resolveShortcuts(menu, cfg.shortcuts[index], [&](const ShortcutTarget &target) {
+    if (target.favorite != Favorite::None) {
+      const auto page = favoritePage(target.favorite, screen, modal, screen, modal);
+      return favoriteItem(nextFavoritePage(target.favorite, page), screen, modal);
+    }
     return findShortcutItem(target, owner);
   });
 }
@@ -1137,19 +1303,21 @@ static void panel(float l, float t, float r, float b) {
   d->AddRect({l, t}, {r, b}, IM_COL32(78, 223, 186, 240), 12, 0, 2);
 }
 static void drawMenuShortcuts(float width, float height, const ResolvedShortcuts &shortcuts,
-                              int selection) {
+                              int selection, Favorite favorite, bool waiting) {
   const auto hint = [&](int direction) {
     const auto &entry = shortcuts[direction];
     const ImU32 colour = entry.item < 0 ? IM_COL32(151, 160, 171, 240)
-        : entry.item == selection ? IM_COL32(105, 243, 211, 255)
+        : (entry.favorite == Favorite::None ? entry.item == selection : entry.favorite == favorite)
+                                  ? IM_COL32(105, 243, 211, 255)
                                   : IM_COL32(245, 245, 245, 255);
     return HudHint{PadUp + direction, entry.label ? entry.label->get(cfg.language) : nullptr,
                    -1, colour};
   };
   drawCornerHints(width, height, false, {
-      hint(0), hint(1), {cfg.bindings[SettingsModifier], text("Bırak", "Release")}});
+      hint(0), hint(1), {cfg.bindings[SettingsModifier], waiting
+          ? text("İptal", "Cancel") : text("Bırak", "Release")}});
   drawCornerHints(width, height, true, {
-      hint(2), hint(3), {cfg.bindings[Confirm], text("Aç", "Open")}});
+      hint(2), hint(3), {cfg.bindings[Back], text("İptal", "Cancel")}});
 
 }
 static std::string utf8(const std::wstring &s) {
@@ -1160,54 +1328,103 @@ static std::string utf8(const std::wstring &s) {
                       nullptr, nullptr);
   return out;
 }
+static std::string profileCaption() {
+  if (!profiles.current().name.empty())
+    return utf8(profiles.current().name);
+  if (!profiles.active)
+    return text("Varsayılan", "Default");
+  return std::string(text("Oyuncu ", "Player ")) + std::to_string(profiles.active + 1);
+}
+
+static void blockMenuInput();
+
+static void finishProfileName(bool apply) {
+  if (apply) {
+    profiles.current().name = normalizeProfileName(profileNameDraft);
+    profiles.enabled = true;
+  }
+  profileNaming = false;
+  blockMenuInput();
+}
+
+static void moveKeyboard(KeyboardSelection &keys, const bool (&nav)[4], bool next) {
+  const auto rows = keyboardRows(cfg.language, keys.upper, keys.symbols);
+  if (nav[0])
+    keys.row = (keys.row + 4) % 5;
+  if (nav[1])
+    keys.row = (keys.row + 1) % 5;
+  const int columns = keys.row == 4 ? 6 : int(rows[keys.row].size());
+  keys.col = std::min(keys.col, columns - 1);
+  if (nav[2])
+    keys.col = (keys.col + columns - 1) % columns;
+  if (nav[3] || next)
+    keys.col = (keys.col + 1) % columns;
+}
+
 static void keyAction() {
-  auto rows = keyboardRows(cfg.language, upper, symbols);
-  if (keyRow < 4) {
-    character(rows[keyRow][keyCol]);
+  auto &keys = profileNaming ? profileKeys : gameKeys;
+  const auto rows = keyboardRows(cfg.language, keys.upper, keys.symbols);
+  const auto insert = [&](wchar_t key) {
+    if (!profileNaming)
+      character(key);
+    else if (profileNameDraft.size() < profileNameLimit && profileNameCharacter(key))
+      profileNameDraft += key;
+  };
+  if (keys.row < 4) {
+    insert(rows[keys.row][keys.col]);
     return;
   }
-  switch (keyCol) {
+  switch (keys.col) {
   case 0:
-    character(L' ');
+    insert(L' ');
     break;
   case 1:
-    localKey(VK_BACK);
+    if (!profileNaming)
+      localKey(VK_BACK);
+    else if (!profileNameDraft.empty())
+      profileNameDraft.pop_back();
     break;
   case 2:
-    upper = !upper;
+    keys.upper = !keys.upper;
     break;
   case 3:
-    symbols = !symbols;
+    keys.symbols = !keys.symbols;
     break;
   case 4:
-    simKey("enter");
-    keyboard = manualKeyboard = false;
-    break;
   case 5:
-    simKey("esc");
-    keyboard = manualKeyboard = false;
+    if (profileNaming)
+      finishProfileName(keys.col == 4);
+    else {
+      simKey(keys.col == 4 ? "enter" : "esc");
+      keyboard = manualKeyboard = false;
+    }
     break;
   }
 }
 static void drawKeyboard(float width, float height) {
+  const auto &keys = profileNaming ? profileKeys : gameKeys;
   float cw = std::min(width * .052f, 64.f), ch = std::min(height * .065f, 54.f),
         w = cw * 12 + 40, l = (width - w) / 2,
         t = std::max(70.f, height - ch * 5 - 110);
   panel(l, t, l + w, t + ch * 5 + 90);
   char hint[160];
-  std::snprintf(hint, sizeof(hint),
-                text("TÜRKÇE Q   |   %s: Sil   %s: Büyük/küçük   %s: Tamam", "ENGLISH QWERTY   |   %s: Delete   %s: Change case   %s: OK"),
-                bindingName(Secondary), bindingName(Keyboard),
-                bindingName(Menu));
+  if (profileNaming)
+    std::snprintf(hint, sizeof(hint), text("Profil adı   %s Sil   %s Büyük/küçük   %s Tamam",
+                                          "Profile name   %s Delete   %s Change case   %s Done"),
+                  buttonCaption(PadX), buttonCaption(PadY), buttonCaption(PadStart));
+  else
+    std::snprintf(hint, sizeof(hint),
+                  text("TÜRKÇE Q   |   %s: Sil   %s: Büyük/küçük   %s: Tamam", "ENGLISH QWERTY   |   %s: Delete   %s: Change case   %s: OK"),
+                  bindingName(Secondary), bindingName(Keyboard), bindingName(Menu));
   label(l + 20, t + 12, hint);
-  auto rows = keyboardRows(cfg.language, upper, symbols);
+  const auto rows = keyboardRows(cfg.language, keys.upper, keys.symbols);
   auto d = ImGui::GetForegroundDrawList();
   for (int row = 0; row < 5; ++row) {
     int count = row == 4 ? 6 : int(rows[row].size());
     float cell = row == 4 ? cw * 2 : cw;
     for (int col = 0; col < count; ++col) {
       float x = l + 20 + col * cell, y = t + 48 + row * ch;
-      bool sel = row == keyRow && col == keyCol;
+      bool sel = row == keys.row && col == keys.col;
       d->AddRectFilled(
           {x + 2, y + 2}, {x + cell - 2, y + ch - 2},
           sel ? IM_COL32(40, 170, 133, 255) : IM_COL32(40, 50, 65, 255), 5);
@@ -1215,17 +1432,29 @@ static void drawKeyboard(float width, float height) {
                                       "#+=",    text("Tamam", "OK"), text("İptal", "Cancel")};
       auto caption = row == 4 ? std::string(special[col])
                            : utf8(std::wstring(1, rows[row][col]));
-      label(x + 10, y + ch * .28f, caption.c_str());
+      const bool available = !profileNaming || row == 4 || profileNameCharacter(rows[row][col]);
+      label(x + 10, y + ch * .28f, caption.c_str(),
+            available ? IM_COL32_WHITE : IM_COL32(145, 155, 165, 255));
     }
   }
-  // No mirror of the field contents: LFS retains password masking and text
-  // limits.
+  if (profileNaming) {
+    const auto draft = profileNameDraft.empty() ? profileCaption() : utf8(profileNameDraft);
+    label(l + 20, t + 59 + ch * 5, draft.c_str());
+    char length[16];
+    std::snprintf(length, sizeof(length), "%u/%u", unsigned(profileNameDraft.size()),
+                  unsigned(profileNameLimit));
+    label(l + w - 20 - ImGui::CalcTextSize(length).x, t + 59 + ch * 5, length);
+  }
 }
 static void adjustSetting(int direction) {
   switch (settingRow) {
   case controllerSetting:
     cfg.slot = (cfg.slot + 1 + direction + 6) % 6 - 1;
     missingSlot = false;
+    break;
+  case profileSetting:
+    profiles.select(direction, cfg);
+    blockMenuInput();
     break;
   case languageSetting:
     cfg.language = cfg.language == Language::English ? Language::Turkish : Language::English;
@@ -1250,9 +1479,20 @@ static void adjustSetting(int direction) {
     cfg.inputMonitor = !cfg.inputMonitor;
     break;
   case shortcutSetting:
+  case controllerCheckSetting:
+  case clutchSetting:
+    break;
+  case shortcutUsageSetting:
+    cfg.shortcutSequential = !cfg.shortcutSequential;
     break;
   case rumbleSetting:
     cfg.rumbleStrength = std::clamp(cfg.rumbleStrength + direction * 10, 0, 100);
+    break;
+  case steeringSetting:
+    cfg.steeringCurve = SteeringCurve((int(cfg.steeringCurve) + 3 + direction) % 3);
+    break;
+  case steeringHelpSetting:
+    cfg.steeringHelp = SteeringHelp((int(cfg.steeringHelp) + 3 + direction) % 3);
     break;
   default:
     int action = settingRow - firstBindingSetting;
@@ -1307,7 +1547,7 @@ static void drawShortcutEditor(float l, float t, float w) {
                 buttonCaption(0), buttonCaption(1));
   label(l + 22, t + 374, hint);
 }
-static void drawSettings(float l, float t, float w) {
+static void drawSettings(float l, float t, float w, bool clutchAvailable) {
   panel(l, t, l + w, t + settingsHeight);
   label(l + 22, t + 16, text("LfsPad ayarları", "LfsPad settings"));
   const auto &tab = settingsTabs[settingsTab];
@@ -1336,7 +1576,7 @@ static void drawSettings(float l, float t, float w) {
                                     text("Önceki sekme", "Previous tab"),
                                     text("Sonraki sekme", "Next tab"),
                                     text("Menü / metni onayla", "Menu / submit text"),
-                                    text("Menü kısayolları için basılı tut", "Hold for menu shortcuts"),
+                                    text("Menü kısayolları", "Menu shortcuts"),
                                     text("İmleç modu", "Cursor mode")};
   char values[settingCount][100];
   if (cfg.slot == nativePreference)
@@ -1346,10 +1586,13 @@ static void drawSettings(float l, float t, float w) {
   else
     std::snprintf(values[controllerSetting], 80, "%s", text("Kontrolcü: Otomatik", "Controller: Auto"));
   std::snprintf(values[languageSetting], 100, "%s", text("Dil: Türkçe", "Language: English"));
+  std::snprintf(values[profileSetting], 100, text("Oyuncu profili: %s", "Player profile: %s"),
+                profileCaption().c_str());
   std::snprintf(values[controllerIconsSetting], 100, text("Kontrolcü simgeleri: %s", "Controller icons: %s"),
                 cfg.controllerIcons ? text("Açık", "On") : text("Kapalı", "Off"));
   std::snprintf(values[autoUpdateSetting], 100, text("Otomatik güncelleme: %s", "Automatic updates: %s"),
                 cfg.autoUpdate ? text("Açık", "On") : text("Kapalı", "Off"));
+  std::snprintf(values[controllerCheckSetting], 100, "%s", text("Kontrolcümü test et", "Test my controller"));
   std::snprintf(values[deadzoneSetting], 80, text("Analog ölü bölgesi: %d%%", "Stick deadzone: %d%%"),
                 int(cfg.deadzone * 100 + .5f));
   std::snprintf(values[cursorSpeedSetting], 80, text("İmleç hızı: %.0f", "Cursor speed: %.0f"), cfg.cursorSpeed);
@@ -1361,8 +1604,20 @@ static void drawSettings(float l, float t, float w) {
   std::snprintf(values[monitorSetting], 100, text("Canlı giriş göstergesi: %s", "Live input display: %s"),
                 cfg.inputMonitor ? text("Açık", "On") : text("Kapalı", "Off"));
   std::snprintf(values[shortcutSetting], 100, "%s", text("Kişisel menü kısayolları", "Custom menu shortcuts"));
+  std::snprintf(values[shortcutUsageSetting], 100, text("Kısayol kullanımı: %s", "Shortcut input: %s"),
+                cfg.shortcutSequential ? text("Art arda bas", "Tap then choose")
+                                       : text("Basılı tut", "Hold"));
   std::snprintf(values[rumbleSetting], 100, text("Sürüş titreşimi: %d%%", "Driving vibration: %d%%"),
                 cfg.rumbleStrength);
+  const char *steeringOptions[]{text("Doğrusal", "Linear"), text("Yumuşak", "Soft"),
+                               text("Çok yumuşak", "Extra soft")};
+  std::snprintf(values[steeringSetting], 100, text("Direksiyon eğrisi: %s", "Steering curve: %s"),
+                steeringOptions[unsigned(cfg.steeringCurve)]);
+  const char *steeringHelpOptions[]{text("Kapalı", "Off"), text("Dengeli", "Balanced"),
+                                  text("Güçlü", "Strong")};
+  std::snprintf(values[steeringHelpSetting], 100, text("Direksiyon yardımı: %s", "Steering assist: %s"),
+                steeringHelpOptions[unsigned(cfg.steeringHelp)]);
+  std::snprintf(values[clutchSetting], 100, "%s", clutchLabel.get(cfg.language));
   constexpr int visibleRows = 5;
   const int first = std::clamp(settingRow - 2, tab.first, std::max(tab.first, tab.end - visibleRows));
   for (int row = 0; row < visibleRows && first + row < tab.end; ++row) {
@@ -1372,7 +1627,8 @@ static void drawSettings(float l, float t, float w) {
           {l + 14, t + 103 + row * 40.f}, {l + w - 14, t + 139 + row * 40.f},
           bindingCapture.active() ? IM_COL32(126, 84, 30, 255)
                                   : IM_COL32(35, 110, 94, 255), 4);
-    label(l + 25, t + 110 + row * 40.f, values[i]);
+    label(l + 25, t + 110 + row * 40.f, values[i],
+          i == clutchSetting && !clutchAvailable ? IM_COL32(166, 185, 202, 255) : IM_COL32_WHITE);
   }
   if (tab.end - tab.first > visibleRows) {
     char position[32];
@@ -1388,11 +1644,17 @@ static void drawSettings(float l, float t, float w) {
     label(l + 22, t + 374, playStationCaptions
         ? text("L2 + R2 ile iptal et", "Press L2 + R2 to cancel")
         : text("LT + RT ile iptal et", "Press LT + RT to cancel"));
-  } else if (settingRow == shortcutSetting) {
+  } else if (settingRow == shortcutSetting || settingRow == controllerCheckSetting ||
+             settingRow == clutchSetting) {
     char hint[128];
-    std::snprintf(hint, sizeof(hint), text("D-pad: seç   %s: kısayolları düzenle   %s: iptal", "D-pad: select   %s: edit shortcuts   %s: cancel"),
-                  buttonCaption(0), buttonCaption(1));
+    std::snprintf(hint, sizeof(hint), text("D-pad: seç   %s: aç   %s: iptal", "D-pad: select   %s: open   %s: cancel"),
+                  buttonCaption(PadA), buttonCaption(PadB));
     label(l + 22, t + 342, hint);
+    if (settingRow == clutchSetting)
+      label(l + 22, t + 374, clutchAvailable
+          ? text("LFS'deki debriyaj ayarını açar.", "Opens LFS's clutch setting.")
+          : text("Uygun araçla piste çıkınca durdurma menüsünden aç.",
+                 "Open from the pause menu while in a compatible car."));
   } else {
     char hint[128];
     std::snprintf(hint, sizeof(hint), text("D-pad: seç / değiştir   %s: kaydet   %s: iptal", "D-pad: select / change   %s: save   %s: cancel"),
@@ -1403,6 +1665,14 @@ static void drawSettings(float l, float t, float w) {
                     buttonCaption(2));
     else if (settingRow == rumbleSetting)
       std::snprintf(hint, sizeof(hint), text("%s: titreşimi dene    %%0: kapalı", "%s: test vibration   0%%: off"), buttonCaption(2));
+    else if (settingRow == steeringSetting)
+      std::snprintf(hint, sizeof(hint), "%s", text("Küçük analog hareketleri yumuşatır.",
+                                                  "Softens small left-stick movements."));
+    else if (settingRow == steeringHelpSetting)
+      std::snprintf(hint, sizeof(hint), "%s", text("Virajda fazla dönüşü azaltır, kaymada destek olur.",
+                                                  "Reduces excess steering and helps correct slides."));
+    else if (settingRow == profileSetting)
+      std::snprintf(hint, sizeof(hint), text("%s: yeniden adlandır", "%s: rename"), buttonCaption(PadX));
     else if (settingRow == autoUpdateSetting)
       std::snprintf(hint, sizeof(hint), "%s", text("Açılışta kontrol edilir, oyun kapanınca kurulur.",
                                                   "Checks on launch and installs after you quit."));
@@ -1446,6 +1716,81 @@ static void drawMeterAxis(float x, float y, float width, const char *name,
                         meterActive, 1);
   if (centered)
     draw->AddLine({x + neutral, y + 15}, {x + neutral, y + 21}, meterMuted);
+}
+static void drawControllerCheck(float l, float t, float w, const ControllerCheck &check,
+                                const XINPUT_GAMEPAD &pad, bool connected, ControllerId slot) {
+  panel(l, t, l + w, t + settingsHeight);
+  label(l + 22, t + 16, text("Kontrolcümü test et", "Test my controller"));
+  char xinput[20]{};
+  if (connected && !isNativeController(slot))
+    std::snprintf(xinput, sizeof(xinput), "XInput %d", int(slot) + 1);
+  const char *source = !connected ? text("Kontrolcü bağlı değil", "No controller connected")
+      : playStationCaptions ? "PlayStation"
+      : isNativeController(slot) ? text("Yerel gamepad", "Native gamepad") : xinput;
+  label(l + 22, t + 43, source, meterMuted);
+  const char *leftTrigger = playStationCaptions ? "L2" : "LT";
+  const char *rightTrigger = playStationCaptions ? "R2" : "RT";
+  const char *steps[] = {
+      buttonCaption(PadUp), buttonCaption(PadDown), buttonCaption(PadLeft), buttonCaption(PadRight),
+      leftTrigger, rightTrigger, text("Düşük frekans titreşimi", "Low-frequency vibration"),
+      text("Yüksek frekans titreşimi", "High-frequency vibration"),
+  };
+  const char *results[] = {
+      "-", text("Geçti", "Passed"), text("Atlandı", "Skipped"),
+      text("Hissedilmedi", "Not felt"), text("Komut başarısız", "Command failed"),
+  };
+  for (std::size_t i = 0; i < check.results.size(); ++i) {
+    const float y = t + 76.f + float(i) * 23.f;
+    const auto result = check.results[i];
+    if (!check.interrupted && i == std::size_t(check.step))
+      ImGui::GetForegroundDrawList()->AddRectFilled({l + 14, y - 2}, {l + w - 14, y + 19},
+                                                     IM_COL32(35, 110, 94, 255), 4);
+    const bool directionDown = connected && i <= std::size_t(CheckStep::Right) &&
+                               (pad.wButtons & physical[PadUp + i]);
+    label(l + 22, y, steps[i], directionDown ? meterActive : IM_COL32_WHITE);
+    const auto *caption = results[std::size_t(result)];
+    const auto colour = result == CheckResult::Passed ? meterActive
+        : result == CheckResult::NoOutput || result == CheckResult::NotFelt ? meterWarning
+                                                                           : meterMuted;
+    label(l + w - 24 - ImGui::CalcTextSize(caption).x, y, caption, colour);
+  }
+  const float barWidth = (w - 68) * .5f;
+  drawMeterAxis(l + 22, t + 270, barWidth, leftTrigger, pad.bLeftTrigger / 255.f, connected, false);
+  drawMeterAxis(l + 46 + barWidth, t + 270, barWidth, rightTrigger, pad.bRightTrigger / 255.f,
+                connected, false);
+  const auto step = std::size_t(check.step);
+  const auto *confirm = buttonCaption(PadA);
+  const auto *skip = buttonCaption(PadX);
+  char prompt[160]{};
+  if (check.complete() || check.interrupted) {
+    label(l + 22, t + 312, check.complete() ? text("Test tamamlandı", "Test complete")
+                                            : text("Test durdu", "Test interrupted"));
+    if (connected)
+      std::snprintf(prompt, sizeof(prompt), text("%s ile yeniden başlat", "%s to restart"), confirm);
+  } else if (check.step <= CheckStep::Right) {
+    std::snprintf(prompt, sizeof(prompt), text("Yönleri ve tetikleri bırak, sonra %s yönüne bas.",
+                                              "Release the triggers and D-pad, then press %s."), steps[step]);
+  } else if (!check.testingMotor()) {
+    std::snprintf(prompt, sizeof(prompt), text("İki tetiği bırak, sonra yalnız %s tuşunu sonuna kadar sık.",
+                                              "Release both triggers, then squeeze %s fully."), steps[step]);
+  } else if (check.motor == MotorPhase::Pulsing) {
+    std::snprintf(prompt, sizeof(prompt), "%s", text("Titreşim gönderiliyor", "Sending vibration"));
+  } else if (check.motor == MotorPhase::Feedback) {
+    std::snprintf(prompt, sizeof(prompt), text("Titreşimi hissettin mi?  %s Evet   %s Hayır",
+                                              "Did you feel it?  %s Yes   %s No"), confirm, skip);
+  } else {
+    std::snprintf(prompt, sizeof(prompt), text("Kısa titreşim için %s tuşuna bas.",
+                                              "Press %s for a short vibration."), confirm);
+  }
+  label(l + 22, t + 338, prompt);
+  char footer[120];
+  const bool canSkip = !check.complete() && !check.interrupted && check.motor == MotorPhase::Ready;
+  if (canSkip)
+    std::snprintf(footer, sizeof(footer), text("%s Atla   %s Geri", "%s Skip   %s Back"),
+                  skip, buttonCaption(PadB));
+  else
+    std::snprintf(footer, sizeof(footer), text("%s Geri", "%s Back"), buttonCaption(PadB));
+  label(l + 22, t + 377, footer, meterMuted);
 }
 static void drawMeterButtons(float x, float y, float width,
                              std::uint16_t available, std::uint16_t down,
@@ -1939,18 +2284,37 @@ void frame(IDXGISwapChain *swap) {
   const bool menuPressed =
       (pressed & (settings ? XINPUT_GAMEPAD_START : binding(Menu))) ||
       (diagnostic & (1 << 9));
-  const bool closingSettingsWithStart = settings && menuPressed;
+  const auto &pad = state.Gamepad;
+  static ControllerCheck controllerCheck;
+  static bool controllerCheckOpen = false, controllerCheckDrain = false;
+  static ControllerId checkedController = -1;
+  static uintptr_t checkedModal = 0;
+  if (!settings || !menu)
+    controllerCheckOpen = false;
+  if (controllerCheckOpen && !controllerCheck.complete() &&
+      (!foreground || lostAssignmentFocus || !connected || contextChanged ||
+       activeSlot != checkedController || modal != checkedModal))
+    controllerCheck.interrupt();
+  const auto beginControllerCheck = [&] {
+    controllerCheck = {};
+    checkedController = activeSlot;
+    checkedModal = modal;
+    controllerCheckOpen = true;
+    if (!connected)
+      controllerCheck.interrupt();
+    blockMenuInput();
+  };
   static SettingsTriggerChord settingsChord;
   static double diagnosticTriggersUntil = 0;
   const bool settingsChordAllowed = menu && foreground && !contextChanged &&
       !lostAssignmentFocus && (connected || cfg.diagnostics) && !nativeText && !keyboard &&
       !garageViewer && !adjustingSlider && !cursorDragging && !bindingCapture.active() &&
-      !nativeButtonAssignment && (!pedalCalibration || settings);
+      !nativeButtonAssignment && !controllerCheckOpen && !profileNaming &&
+      (!pedalCalibration || settings);
   if (!settingsChordAllowed)
     diagnosticTriggersUntil = 0;
   else if (diagnosticSettings)
     diagnosticTriggersUntil = time + SettingsTriggerChord::duration + .18;
-  const auto &pad = state.Gamepad;
   constexpr auto rfsChord = XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER;
   const bool rfsAvailable = GetModuleHandleW(L"rfs.dll") != nullptr;
   const bool rfsAllowed = rfsAvailable && foreground && menu && (connected || cfg.diagnostics) &&
@@ -1990,20 +2354,52 @@ void frame(IDXGISwapChain *swap) {
   const bool hasMenuShortcuts =
       std::any_of(menuShortcuts.begin(), menuShortcuts.end(),
                   [](const ResolvedShortcut &shortcut) { return shortcut.label != nullptr; });
-  const bool canUseMenuShortcuts = foreground && (connected || cfg.diagnostics) &&
-                                  hasMenuShortcuts && !settings && !keyboard &&
-                                  !cursorMode && !adjustingSlider && !menuPressed &&
-                                  !toggleSettings && !diagnosticKeyboard &&
-                                  !(pressed & (binding(CursorMode) | binding(Keyboard)));
+  const bool shortcutContext = menu && foreground && (connected || cfg.diagnostics) &&
+      !lostAssignmentFocus && !nativeText && !settings && !keyboard && !nativeButtonAssignment &&
+      !rfsCursor && !rfsChanged && !cursorMode && !adjustingSlider && !menuPressed &&
+      !toggleSettings && !diagnosticKeyboard && !(pressed & (binding(CursorMode) | binding(Keyboard)));
+  const bool canUseMenuShortcuts = shortcutContext && hasMenuShortcuts && !reset;
+  const auto modifier = binding(SettingsModifier);
+  static ShortcutGesture shortcutGesture;
   static bool diagnosticMenuShortcuts = false;
-  if (!canUseMenuShortcuts || reset || back)
+  static Favorite pendingFavorite = Favorite::None;
+  static ShortcutScreen favoriteSource = ShortcutScreen::None;
+  static uintptr_t favoriteOwner = 0;
+  static FavoriteRoute favoriteRoute;
+  static double favoriteErrorUntil = 0;
+  static Favorite failedFavorite = Favorite::None;
+  const bool clutchSession = sim.known && (sim.flags & 1) && !(sim.flags & 2) &&
+                            !replay.active && sim.localPlayer && sim.localPlayer == sim.viewedPlayer;
+  if (favoriteRoute.favorite != Favorite::None &&
+      (!shortcutContext || contextChanged || (favoriteRoute.favorite == Favorite::Clutch && !clutchSession))) {
+    releaseMouse();
+    favoriteRoute.cancel();
+    blockMenuInput();
+  }
+  if (!canUseMenuShortcuts || shortcutScreen != favoriteSource || modal != favoriteOwner)
+    pendingFavorite = Favorite::None;
+  const bool cancelShortcut = back && (shortcutGesture.waiting || (held & modifier) ||
+                                      diagnosticMenuShortcuts);
+  if (cancelShortcut) {
+    pendingFavorite = Favorite::None;
+    blockMenuInput();
+  }
+  if (!canUseMenuShortcuts || cancelShortcut)
     diagnosticMenuShortcuts = false;
   else if (diagnostic & (1u << 18))
     diagnosticMenuShortcuts = !diagnosticMenuShortcuts;
-  const bool menuShortcutsOpen = canUseMenuShortcuts &&
-      ((held & binding(SettingsModifier)) || diagnosticMenuShortcuts);
+  const bool otherShortcutInput = (buttons & ~modifier) != 0 ||
+      lx != 0.f || ly != 0.f || rfsX != 0.f || rfsY != 0.f ||
+      pad.bLeftTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD ||
+      pad.bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD;
+  const bool physicalShortcutPanel = shortcutGesture.update(
+      canUseMenuShortcuts && favoriteRoute.favorite == Favorite::None, cfg.shortcutSequential,
+      (held & modifier) != 0, (pressed & modifier) != 0, otherShortcutInput, cancelShortcut);
+  bool menuShortcutsOpen = physicalShortcutPanel || diagnosticMenuShortcuts;
+  const bool shortcutCaptured = menuShortcutsOpen || cancelShortcut ||
+      pendingFavorite != Favorite::None || favoriteRoute.favorite != Favorite::None;
   static ShortcutInputDrain shortcutInput;
-  shortcutInput.update(shortcutEditorWasOpen, menuShortcutsOpen, lx != 0.f || ly != 0.f,
+  shortcutInput.update(shortcutEditorWasOpen, shortcutCaptured, lx != 0.f || ly != 0.f,
                        buttons & (XINPUT_GAMEPAD_A | XINPUT_GAMEPAD_B |
                                   XINPUT_GAMEPAD_X | XINPUT_GAMEPAD_START));
   bool finishHint = false;
@@ -2011,6 +2407,11 @@ void frame(IDXGISwapChain *swap) {
                                    replay.confirmedAbsent);
   const bool onTrack = sim.known && sim.mode == 0 &&
                        session != RaceSession::Outside && (sim.flags & 1);
+  const auto clutchPage = settings && clutchSession && (raceMenu || shortcutScreen == ShortcutScreen::Options)
+      ? favoritePage(Favorite::Clutch, shortcutScreen, modal, shortcutScreen, modal)
+      : FavoritePage::Other;
+  const bool clutchAvailable = clutchPage == FavoritePage::Driver ? nativeClutchItem(modal) >= 0
+      : favoriteItem(nextFavoritePage(Favorite::Clutch, clutchPage), shortcutScreen, modal) >= 0;
   const bool canTogglePause = onTrack && foreground && !menu &&
                              !(sim.flags & 8) && !menuPressed && !back;
   static PadRecovery recovery;
@@ -2131,9 +2532,12 @@ void frame(IDXGISwapChain *swap) {
       viewerReady, contextChanged || lostAssignmentFocus,
       quickX != 0 || quickY != 0, pad.bLeftTrigger > 30 || pad.bRightTrigger > 30);
   constexpr unsigned quickButtonBits[]{0, 1u << 6, 1u << 8, 1u << 9};
+  const bool checkTriggersHeld = pad.bLeftTrigger > ControllerCheck::neutralTrigger ||
+                                 pad.bRightTrigger > ControllerCheck::neutralTrigger;
+  controllerCheckDrain = controllerCheckOpen || (controllerCheckDrain && checkTriggersHeld);
   const auto quickFilter = (quickAllowed ? quickButtonBits[cfg.quickButton] : 0u) |
                            (quickDrain ? rightStickMask : 0u) |
-                           (settingsChord.draining ? triggerAxisMask : 0u);
+                           ((settingsChord.draining || controllerCheckDrain) ? triggerAxisMask : 0u);
   captureQuickInput.store(connected && singlePad && foreground
                              ? quickFilter | viewerMask |
                                    (shortcutInput.stickHeld ? leftStickMask : 0u)
@@ -2211,7 +2615,12 @@ void frame(IDXGISwapChain *swap) {
       if (cfg.diagnostics)
         log("Settings trigger chord: %s", settings ? "open" : "closed");
     } else if (menuPressed) {
-      if (keyboard) {
+      if (profileNaming) {
+        finishProfileName(true);
+      } else if (controllerCheckOpen) {
+        controllerCheckOpen = false;
+        blockMenuInput();
+      } else if (keyboard) {
         simKey("enter");
         keyboard = manualKeyboard = false;
       } else if (settings) {
@@ -2226,7 +2635,7 @@ void frame(IDXGISwapChain *swap) {
     if (menu && !toggleSettings && ((pressed & binding(Keyboard)) || diagnosticKeyboard) &&
         !settings) {
       if (keyboard && !diagnosticKeyboard)
-        upper = !upper;
+        gameKeys.upper = !gameKeys.upper;
       else {
         keyboard = !keyboard;
         manualKeyboard = keyboard;
@@ -2238,22 +2647,12 @@ void frame(IDXGISwapChain *swap) {
     if (!nativeText && !manualKeyboard)
       keyboard = false;
     if (!menu) {
-      settings = keyboard = manualKeyboard = false;
+      settings = keyboard = manualKeyboard = profileNaming = false;
       cursorMode = false;
     }
-    if (menu && !toggleSettings && !closingSettingsWithStart) {
+    if (menu && !toggleSettings && !menuPressed) {
       if (keyboard) {
-        auto rows = keyboardRows(cfg.language, upper, symbols);
-        if (nav[0])
-          keyRow = (keyRow + 4) % 5;
-        if (nav[1])
-          keyRow = (keyRow + 1) % 5;
-        int cols = keyRow == 4 ? 6 : int(rows[keyRow].size());
-        keyCol = std::min(keyCol, cols - 1);
-        if (nav[2])
-          keyCol = (keyCol + cols - 1) % cols;
-        if (nav[3] || diagnosticNext)
-          keyCol = (keyCol + 1) % cols;
+        moveKeyboard(gameKeys, nav, diagnosticNext);
         if (confirm)
           keyAction();
         if (pressed & binding(Secondary))
@@ -2261,6 +2660,31 @@ void frame(IDXGISwapChain *swap) {
         if (back) {
           keyboard = manualKeyboard = false;
           simKey("esc");
+        }
+      } else if (settings && profileNaming) {
+        if (back) {
+          finishProfileName(false);
+        } else {
+          moveKeyboard(profileKeys, nav, diagnosticNext);
+          if ((pressed & XINPUT_GAMEPAD_X) || diagnosticAssign) {
+            if (!profileNameDraft.empty())
+              profileNameDraft.pop_back();
+          } else if ((pressed & XINPUT_GAMEPAD_Y) || diagnosticKeyboard) {
+            profileKeys.upper = !profileKeys.upper;
+          } else if (confirm) {
+            keyAction();
+          }
+        }
+      } else if (settings && controllerCheckOpen) {
+        if (back) {
+          controllerCheckOpen = false;
+          blockMenuInput();
+        } else if (controllerCheck.interrupted || controllerCheck.complete()) {
+          if (confirm && connected)
+            beginControllerCheck();
+        } else {
+          controllerCheck.update(buttons & dpad, pad.bLeftTrigger, pad.bRightTrigger,
+              confirm, (pressed & XINPUT_GAMEPAD_X) || diagnosticAssign, now);
         }
       } else if (settings && shortcutEditor) {
         if (back || confirm) {
@@ -2303,6 +2727,15 @@ void frame(IDXGISwapChain *swap) {
           loadConfig();
           settings = false;
           blockMenuInput();
+        } else if (settingRow == profileSetting && ((pressed & XINPUT_GAMEPAD_X) || diagnosticAssign)) {
+          profileNameDraft = profiles.current().name;
+          profileKeys = {};
+          profileKeys.row = 1;
+          profileNaming = true;
+          blockMenuInput();
+        } else if (settingRow == controllerCheckSetting && confirm) {
+          rumblePreviewUntil = 0;
+          beginControllerCheck();
         } else if (settingRow == shortcutSetting && confirm) {
           shortcutEditDraft = cfg.shortcuts;
           shortcutEditMenu = shortcutScreen == ShortcutScreen::None ? 0 : int(shortcutScreen);
@@ -2322,7 +2755,7 @@ void frame(IDXGISwapChain *swap) {
             rumblePreviewSlot = slot;
             rumblePreviewUntil = time + .42;
           }
-        } else if (confirm) {
+        } else if (confirm && (settingRow != clutchSetting || clutchAvailable)) {
           XINPUT_STATE candidate{};
           missingSlot = cfg.slot >= 0 &&
                         readController(controllerForPreference(cfg.slot, activeSlot),
@@ -2330,24 +2763,67 @@ void frame(IDXGISwapChain *swap) {
           if (!missingSlot) {
             settingsSaveFailed = !saveConfig();
             if (!settingsSaveFailed) {
+              if (settingRow == clutchSetting) {
+                favoriteSource = shortcutScreen;
+                favoriteOwner = modal;
+                favoriteErrorUntil = 0;
+                favoriteRoute.begin(Favorite::Clutch, clutchPage, now);
+              }
+              if (inputSlot != cfg.slot || settingRow != clutchSetting)
+                activeSlot = -1;
               inputSlot = cfg.slot;
-              activeSlot = -1;
               settings = false;
               blockMenuInput();
             }
           }
         }
+      } else if (favoriteRoute.favorite != Favorite::None) {
+        if (back) {
+          releaseMouse();
+          favoriteRoute.cancel();
+        } else {
+          const auto favorite = favoriteRoute.favorite;
+          const auto page = favoritePage(favorite, favoriteSource, favoriteOwner, shortcutScreen, modal);
+          const int item = favoriteItem(nextFavoritePage(favorite, page),
+                                        favoriteSource, modal);
+          bool failed = false;
+          const auto action = favoriteRoute.update(page, item >= 0 && !mouseDown, now, failed);
+          if (action != FavoritePage::Other) {
+            if (cfg.diagnostics)
+              log("Favorite transition: %u -> %u", unsigned(page), unsigned(action));
+            activate(items[item], width, height);
+          } else if (failed) {
+            releaseMouse();
+            failedFavorite = favorite;
+            favoriteErrorUntil = time + 2.;
+            if (cfg.diagnostics)
+              log("Favorite stopped at page %u", unsigned(page));
+          } else if (favoriteRoute.favorite == Favorite::None) {
+            if (favorite == Favorite::Clutch) {
+              const int clutch = nativeClutchItem(modal);
+              if (clutch >= 0)
+                selected = clutch;
+              else {
+                failedFavorite = favorite;
+                favoriteErrorUntil = time + 2.;
+              }
+            }
+            if (cfg.diagnostics)
+              log("Favorite reached page %u", unsigned(page));
+          }
+        }
+        blockMenuInput();
+      } else if (cancelShortcut) {
+        blockMenuInput();
       } else if (menuShortcutsOpen) {
-        const auto modifier = binding(SettingsModifier);
-        auto directionalPress = pressed & dpad & ~modifier;
-        auto directionalHeld = buttons & dpad & ~modifier;
+        const auto shortcutDirections = dpad & ~(modifier | binding(Back));
+        auto directionalPress = pressed & shortcutDirections;
+        auto directionalHeld = buttons & shortcutDirections;
         if (diagnosticMenuShortcuts) {
           directionalPress |= diagnostic & dpad;
           directionalHeld |= diagnostic & dpad;
         }
-        if (modifier & dpad) {
-          // A direction used as the modifier cannot also be pressed in the
-          // chord. The left stick still reaches all four shortcut targets.
+        if (!(directionalHeld | directionalPress)) {
           const bool stickDirections[]{ly > .55f, ly < -.55f, lx < -.55f, lx > .55f};
           for (int i = 0; stickArmed && i < 4; ++i)
             if (stickDirections[i]) {
@@ -2356,17 +2832,52 @@ void frame(IDXGISwapChain *swap) {
             }
         }
         const int direction = menuShortcutDirection(directionalHeld, directionalPress);
-        if (direction >= 0 && menuShortcuts[direction].item >= 0) {
-          selected = menuShortcuts[direction].item;
-          scrollTarget = -1;
-          restoreAfterScroll = false;
+        if (direction >= 0) {
+          const auto &target = menuShortcuts[direction];
+          pendingFavorite = Favorite::None;
+          if (target.item >= 0) {
+            if (target.favorite == Favorite::None) {
+              selected = target.item;
+              scrollTarget = -1;
+              restoreAfterScroll = false;
+            } else {
+              pendingFavorite = target.favorite;
+              favoriteSource = shortcutScreen;
+              favoriteOwner = modal;
+              favoriteErrorUntil = 0;
+              diagnosticMenuShortcuts = false;
+            }
+            if (shortcutGesture.waiting) {
+              shortcutGesture.waiting = false;
+              menuShortcutsOpen = diagnosticMenuShortcuts;
+            }
+          }
         }
         // A direction or Confirm held at the end of the chord must not
         // navigate or activate a second target when the modifier is released.
-        gate.blocked |= buttons & (dpad | binding(Confirm));
+        gate.blocked |= buttons & (dpad | binding(Confirm)) & ~modifier;
         stickArmed = false;
         for (auto &directionRepeat : repeat)
           directionRepeat = {};
+      } else if (pendingFavorite != Favorite::None) {
+        if (back || confirm) {
+          if (confirm && !back && !mouseDown) {
+            const auto page = favoritePage(pendingFavorite, favoriteSource, favoriteOwner,
+                                           shortcutScreen, modal);
+            if (favoriteItem(nextFavoritePage(pendingFavorite, page), favoriteSource, modal) >= 0)
+              favoriteRoute.begin(pendingFavorite, page, now);
+            else {
+              failedFavorite = pendingFavorite;
+              favoriteErrorUntil = time + 2.;
+            }
+          }
+          pendingFavorite = Favorite::None;
+          blockMenuInput();
+        } else if (std::any_of(std::begin(nav), std::end(nav), [](bool move) { return move; }) ||
+                   (pressed & (binding(PreviousTab) | binding(NextTab)))) {
+          pendingFavorite = Favorite::None;
+          blockMenuInput();
+        }
       } else {
         const bool cursorChanged = (pressed & binding(CursorMode)) != 0;
         if (cursorChanged) {
@@ -2558,10 +3069,18 @@ void frame(IDXGISwapChain *swap) {
   static bool hadTelemetry = false;
   static bool hadWheelTelemetry = false;
   static ControllerId lastRumbleController = -1;
-  const bool canRumbleWhileDriving = foreground && onTrack && !menu && !settings && !keyboard && !nativeText && !playingReplay &&
+  const bool localDriving = foreground && onTrack && !menu && !settings && !keyboard && !nativeText && !playingReplay &&
       !recoveryConsumesConfirm && !menuPressed && !lostAssignmentFocus &&
       !(sim.flags & (2 | 4 | 8 | 16 | 256 | 32768)) &&
-      sim.localPlayer && sim.localPlayer == sim.viewedPlayer && cfg.rumbleStrength;
+      sim.localPlayer && sim.localPlayer == sim.viewedPlayer;
+  const bool canRumbleWhileDriving = localDriving && cfg.rumbleStrength;
+  const bool steeringAllowed = localDriving && singlePad && !rfsCursor && !rfsDrain;
+  const bool assistDriving = steeringAllowed && cfg.steeringHelp != SteeringHelp::Off;
+  static bool steeringArmed = false;
+  if (!steeringAllowed || contextChanged)
+    steeringArmed = false;
+  if (steeringAllowed && std::abs(int(pad.sThumbLX)) <= 1024)
+    steeringArmed = true;
   ControllerId rumbleController = -1;
   if (canRumbleWhileDriving) {
     if (connected)
@@ -2573,12 +3092,61 @@ void frame(IDXGISwapChain *swap) {
     lastRumbleController = rumbleController;
   }
   const bool rumbleDriving = rumbleController >= 0;
-  const auto inSimTelemetry = pollInSimRumble(rumbleDriving);
+  const auto inSimTelemetry = pollInSimCarTelemetry(rumbleDriving || assistDriving);
+  auto outSimTelemetry = rumbleDriving || assistDriving ? drivingTelemetry() : DrivingTelemetry{};
+  const auto tick = GetTickCount64();
+  static unsigned telemetryOwner = 0;
+  static ULONGLONG ownDrivingStarted = 0;
+  const unsigned currentOwner = localDriving ? sim.localPlayer : 0;
+  if (currentOwner != telemetryOwner) {
+    telemetryOwner = currentOwner;
+    ownDrivingStarted = tick;
+  }
+  // OutSim follows the camera in single player. Wait for a new sample when
+  // returning to our own car so we never steer using another driver's data.
+  if (outSimTelemetry.received <= ownDrivingStarted)
+    outSimTelemetry = {};
+  const auto telemetry = selectDrivingTelemetry(outSimTelemetry, inSimTelemetry, tick);
+  const bool fresh = telemetry.fresh(tick);
+  static SteeringHelpState steeringHelp;
+  static unsigned steeringPlayer = 0;
+  if (steeringPlayer != sim.localPlayer || session == RaceSession::Outside ||
+      shortcutScreen == ShortcutScreen::Options || oldSlot != activeSlot || !connected ||
+      cfg.steeringHelp == SteeringHelp::Off) {
+    steeringHelp = {};
+    steeringPlayer = sim.localPlayer;
+  }
+  const bool learnSteering = assistDriving && !steeringHelp.polarity;
+  const auto input = learnSteering ? drivingInputSample(tick - std::min<ULONGLONG>(tick, 80))
+                                  : DrivingInputSample{};
+  const double axis = input.steeringAvailable && !input.axesFiltered ? input.rawSteering : 0.;
+  const auto curve = steeringArmed ? cfg.steeringCurve : SteeringCurve::Linear;
+  if (!assistDriving)
+    steeringHelp.suspend();
+  const auto response = assistDriving
+      ? steeringHelp.update(cfg.steeringHelp, curve, telemetry.sample, fresh, axis, dt)
+      : SteeringResponse{curve};
+  const auto steering = steeringAllowed && GetForegroundWindow() == window
+      ? steeringRequest(response, !native, nativeVidPid) : 0;
+  const auto previousSteering = steeringAssist.exchange(steering);
+  if (cfg.diagnostics && (previousSteering & 3) != (steering & 3))
+    log("Driving steering curve: %u", unsigned(steering & 3));
+  if (cfg.diagnostics) {
+    static SteeringHelp reportedMode = SteeringHelp::Off;
+    static bool reportedFresh = false;
+    static int reportedPolarity = 0;
+    const auto mode = assistDriving ? cfg.steeringHelp : SteeringHelp::Off;
+    if (mode != reportedMode || (assistDriving &&
+        (reportedFresh != fresh || reportedPolarity != steeringHelp.polarity))) {
+      log("Steering assist: mode=%u range=%.1f%% source=%s polarity=%d", unsigned(mode),
+          response.limit / 10., assistDriving && fresh ? (telemetry.sample.hasWheels ? "OutSim" : "InSim") : "none",
+          steeringHelp.polarity);
+      reportedMode = mode;
+    }
+    reportedFresh = fresh;
+    reportedPolarity = steeringHelp.polarity;
+  }
   if (rumbleDriving) {
-    const auto outSimTelemetry = drivingTelemetry();
-    const auto tick = GetTickCount64();
-    const auto telemetry = selectRumbleTelemetry(outSimTelemetry, inSimTelemetry, tick);
-    const bool fresh = telemetry.fresh(tick);
     const bool wheelTelemetry = telemetry.sample.hasWheels;
     if (cfg.diagnostics && fresh && (!hadTelemetry || wheelTelemetry != hadWheelTelemetry))
       log("Rumble telemetry: %s local=%u viewed=%u engine=%.1f gear=%u",
@@ -2595,7 +3163,15 @@ void frame(IDXGISwapChain *swap) {
         settingRow == rumbleSetting && cfg.rumbleStrength &&
         rumblePreviewSlot >= 0 && time < rumblePreviewUntil;
     XINPUT_STATE candidate{};
-    if (preview && readController(rumblePreviewSlot, candidate) == ERROR_SUCCESS) {
+    if (controllerCheckOpen && controllerCheck.motor == MotorPhase::Pulsing &&
+        foreground && !lostAssignmentFocus && connected && activeSlot == checkedController) {
+      constexpr int strength = 60;
+      const auto motors = controllerCheck.step == CheckStep::LowMotor
+          ? motorLevels(1, 0, strength) : motorLevels(0, 1, strength);
+      const auto result = driveMotors(checkedController, motors, window, cfg.diagnostics);
+      controllerCheck.motorReply(result == ERROR_SUCCESS ? MotorReply::Accepted
+          : result == ERROR_BUSY ? MotorReply::Busy : MotorReply::Rejected);
+    } else if (preview && readController(rumblePreviewSlot, candidate) == ERROR_SUCCESS) {
       const bool secondPulse = rumblePreviewUntil - time <= .21;
       const auto result = driveMotors(rumblePreviewSlot,
           secondPulse ? motorLevels(0, 1, cfg.rumbleStrength)
@@ -2618,13 +3194,20 @@ void frame(IDXGISwapChain *swap) {
   const float settingsY = std::max(meterMargin, (height - settingsHeight) * .5f);
   const bool collectInput = showMeter && connected && singlePad;
   static ULONGLONG meterSince = 0;
-  if (!monitorInput.exchange(collectInput) && collectInput)
-    meterSince = GetTickCount64();
+  static bool wasCollectingInput = false;
+  if (collectInput && !wasCollectingInput)
+    meterSince = tick;
+  wasCollectingInput = collectInput;
+  monitorInput.store(collectInput || learnSteering);
   if (foreground && menu) {
-    if (settings && shortcutEditor)
+    if (settings && controllerCheckOpen)
+      drawControllerCheck(settingsX, settingsY, settingsW, controllerCheck, pad, connected, activeSlot);
+    else if (settings && shortcutEditor)
       drawShortcutEditor(settingsX, settingsY, settingsW);
+    else if (settings && profileNaming)
+      drawKeyboard(width, height);
     else if (settings)
-      drawSettings(settingsX, settingsY, settingsW);
+      drawSettings(settingsX, settingsY, settingsW, clutchAvailable);
     else if (keyboard)
       drawKeyboard(width, height);
     else if (rfsCursor) {
@@ -2638,15 +3221,29 @@ void frame(IDXGISwapChain *swap) {
       }
     }
     else {
-      if (!assigningDrivingButton && !cursorMode && selected >= 0) {
+      if (!assigningDrivingButton && !cursorMode && selected >= 0 &&
+          pendingFavorite == Favorite::None && favoriteRoute.favorite == Favorite::None) {
         auto r = items[selected].rect;
         ImGui::GetForegroundDrawList()->AddRect(
             pixel(r.l, r.t), pixel(r.r, r.b), IM_COL32(65, 255, 196, 255), 3, 0,
             3);
       }
       if (menuShortcutsOpen && !assigningDrivingButton)
-        drawMenuShortcuts(width, height, menuShortcuts, selected);
-      else if (assigningDrivingButton) {
+        drawMenuShortcuts(width, height, menuShortcuts, selected, pendingFavorite, shortcutGesture.waiting);
+      else if (pendingFavorite != Favorite::None) {
+        const auto &label = pendingFavorite == Favorite::Axes ? axesLabel : skinListLabel;
+        drawCornerHints(width, height, false, {{cfg.bindings[Confirm], label.get(cfg.language)}});
+        drawCornerHints(width, height, true, {{cfg.bindings[Back], text("İptal", "Cancel")}});
+      } else if (favoriteRoute.favorite != Favorite::None) {
+        const auto &label = favoriteRoute.favorite == Favorite::Axes ? axesLabel
+            : favoriteRoute.favorite == Favorite::Clutch ? clutchLabel : skinListLabel;
+        drawCornerHints(width, height, false, {{-1, label.get(cfg.language)}});
+      } else if (time < favoriteErrorUntil) {
+        const char *message = failedFavorite == Favorite::Clutch
+            ? text("Otomatik debriyaj ayarı kullanılamıyor", "Auto clutch setting unavailable")
+            : text("Favori açılamadı", "Couldn't open favorite");
+        drawCornerHints(width, height, false, {{-1, message}});
+      } else if (assigningDrivingButton) {
         drawCornerHints(width, height, false, {
             {PadDirections, text("Atamak için bir tuşa ya da yöne bas", "Press a button or direction to assign")}});
         drawCornerHints(width, height, true, {{-1, text("Esc · İptal", "Esc · Cancel")}});
@@ -2671,11 +3268,13 @@ void frame(IDXGISwapChain *swap) {
             {cfg.bindings[Confirm], cursorMode ? text("Tıkla", "Click") : text("Seç", "Select")},
             {cfg.bindings[Back], text("Geri", "Back")},
             {cfg.bindings[CursorMode], cursorMode ? text("Seçim", "Selection") : text("İmleç", "Cursor")}});
-        const int modifier = cfg.bindings[SettingsModifier];
+        const int modifierButton = cfg.bindings[SettingsModifier];
         const HudHint settingsHint{PadLT, text("Ayarlar için tut", "Hold for settings"), PadRT};
         if (hasMenuShortcuts && !cursorMode)
           drawCornerHints(width, height, true, {
-              {modifier, text("Kısayollar", "Shortcuts"), modifier >= PadUp ? PadLeftStick : PadDirections},
+              {modifierButton, cfg.shortcutSequential ? text("Bas, sonra yön seç", "Tap, then choose")
+                                                       : text("Kısayollar", "Shortcuts"),
+               modifierButton >= PadUp ? PadLeftStick : PadDirections},
               {cfg.bindings[Keyboard], text("Klavye", "Keyboard")}, settingsHint});
         else if (inList && !cursorMode)
           drawCornerHints(width, height, true, {

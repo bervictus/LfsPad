@@ -8,11 +8,16 @@
 
 namespace pad {
 enum class ShortcutScreen { Main, SinglePlayer, Garage, Options, Race, None };
+enum class Favorite { None, Axes, Skins, Clutch };
+inline constexpr LocalizedText axesLabel{"Eksenler / FF", "Axes / FF"};
+inline constexpr LocalizedText skinListLabel{"Kaplama listesi", "Skin list"};
+inline constexpr LocalizedText clutchLabel{"Otomatik debriyaj", "Auto clutch"};
 struct ShortcutTarget {
   const wchar_t *id = nullptr;
   LocalizedText label;
   std::uintptr_t callback = 0;
   unsigned type = 0, value = 0;
+  Favorite favorite = Favorite::None;
 };
 using ShortcutDirections = std::array<int, 4>;
 inline constexpr ShortcutDirections defaultShortcutDirections{1, 2, 3, 4};
@@ -21,35 +26,38 @@ struct ShortcutMenu {
   LocalizedText label;
   int count = 0;
   // Index zero is disabled. The next four entries are the default directions.
-  std::array<ShortcutTarget, 6> targets{};
+  std::array<ShortcutTarget, 7> targets{};
   std::uintptr_t ownerRva = 0;
 };
 inline constexpr ShortcutTarget shortcutOff{L"off", {"Kapalı", "Off"}};
 inline constexpr std::array<ShortcutMenu, std::size_t(ShortcutScreen::None)>
     shortcutMenus{{
-        {L"MainMenu", {"Ana menü", "Main menu"}, 6,
+        {L"MainMenu", {"Ana menü", "Main menu"}, 7,
          {shortcutOff, {L"solo", {"Tek oyunculu", "Single player"}, 0x84750, 9, 1},
           {L"options", {"Seçenekler", "Options"}, 0x84750, 9, 3},
           {L"replays", {"Tekrarlar", "Replays"}, 0x84750, 9, 4},
           {L"online", {"Çok oyunculu", "Multiplayer"}, 0x84750, 9, 2},
-          {L"training", {"Eğitim", "Training"}, 0x84750, 9, 5}}},
+          {L"training", {"Eğitim", "Training"}, 0x84750, 9, 5},
+          {L"axes-ff", axesLabel, 0, 0, 0, Favorite::Axes}}},
         {L"SinglePlayer", {"Tek oyunculu hazırlık", "Single-player setup"}, 5,
          {shortcutOff, {L"garage", {"Garaj", "Garage"}, 0xac200, 4, 2},
           {L"go", {"Yürü", "Go"}, 0xac0c0, 3, 0}, {L"track", {"Pist", "Track"}, 0xac200, 4, 3},
           {L"driver", {"Sürücü", "Driver"}, 0xac200, 4, 4}}},
-        {L"Garage", {"Garaj", "Garage"}, 6,
+        {L"Garage", {"Garaj", "Garage"}, 7,
          {shortcutOff, {L"setups", {"Ayar listesi", "Setups"}},
           {L"ok", {"Tamam", "OK"}, 0xb3e00, 3, 1}, {L"colours", {"Renkler", "Colours"}, 0x141220, 0, 1},
           {L"viewer", {"Görüntüleyici", "Viewer"}, 0xb1780, 0, 1},
-          {L"skins", {"Kaplama seç", "Select skin"}, 0xb5740, 0, 0}}},
+          {L"skins", {"Kaplama seç", "Select skin"}, 0xb5740, 0, 0},
+          {L"skin-list", skinListLabel, 0, 0, 0, Favorite::Skins}}},
         {L"Options", {"Seçenekler", "Options"}, 5,
          {shortcutOff, {L"controls", {"Kontroller", "Controls"}, 0x111760, 4, 7},
           {L"ok", {"Tamam", "OK"}, 0x111760, 3, 0}, {L"display", {"Ekran", "Display"}, 0x111760, 4, 2},
           {L"graphics", {"Grafik", "Graphics"}, 0x111760, 4, 3}}, 0x49129c},
-        {L"RaceMenu", {"Durdurma menüsü", "Pause menu"}, 5,
+        {L"RaceMenu", {"Durdurma menüsü", "Pause menu"}, 6,
          {shortcutOff, {L"resume", {"Devam et", "Resume"}, 0x8e310, 5, 0},
           {L"pit", {"Pit", "Pit"}, 0x8e310, 5, 2}, {L"options", {"Seçenekler", "Options"}, 0x8e310, 5, 1},
-          {L"replay", {"Tekrarlamayı göster", "Show replay"}, 0x8e310, 5, 3}}},
+          {L"replay", {"Tekrarlamayı göster", "Show replay"}, 0x8e310, 5, 3},
+          {L"axes-ff", axesLabel, 0, 0, 0, Favorite::Axes}}},
     }};
 using ShortcutMappings = std::array<ShortcutDirections, shortcutMenus.size()>;
 
@@ -97,6 +105,7 @@ inline void assignShortcut(ShortcutDirections &directions, int direction, int ta
 struct ResolvedShortcut {
   int item = -1;
   const LocalizedText *label = nullptr;
+  Favorite favorite = Favorite::None;
 };
 using ResolvedShortcuts = std::array<ResolvedShortcut, 4>;
 template <typename FindItem>
@@ -107,9 +116,98 @@ ResolvedShortcuts resolveShortcuts(const ShortcutMenu &menu,
     const int index = directions[i];
     if (index) {
       const auto &target = menu.targets[index];
-      result[i] = {findItem(target), &target.label};
+      result[i] = {findItem(target), &target.label, target.favorite};
     }
   }
   return result;
 }
+
+struct ShortcutGesture {
+  bool waiting = false;
+  bool tap = false;
+  bool dismissed = false;
+
+  bool update(bool allowed, bool sequential, bool down, bool pressed,
+              bool otherInput, bool cancel) {
+    if (!allowed || cancel || (waiting && pressed)) {
+      waiting = tap = false;
+      dismissed = down;
+      return false;
+    }
+    if (down) {
+      if (pressed && sequential && !otherInput)
+        tap = true;
+      if (otherInput)
+        tap = false;
+      return !dismissed;
+    }
+    dismissed = false;
+    if (tap && !otherInput)
+      waiting = true;
+    tap = false;
+    return waiting;
+  }
+};
+
+enum class FavoritePage { Other, Transition, Entry, Options, Controls, Axes, Garage, Colours, Skins, Driver };
+
+inline FavoritePage nextFavoritePage(Favorite favorite, FavoritePage page) {
+  if (favorite == Favorite::Axes) {
+    if (page == FavoritePage::Entry) return FavoritePage::Options;
+    if (page == FavoritePage::Options) return FavoritePage::Controls;
+    if (page == FavoritePage::Controls) return FavoritePage::Axes;
+  } else if (favorite == Favorite::Skins) {
+    if (page == FavoritePage::Garage) return FavoritePage::Colours;
+    if (page == FavoritePage::Colours) return FavoritePage::Skins;
+  } else if (favorite == Favorite::Clutch) {
+    if (page == FavoritePage::Entry) return FavoritePage::Options;
+    if (page == FavoritePage::Options) return FavoritePage::Driver;
+  }
+  return FavoritePage::Other;
+}
+
+struct FavoriteRoute {
+  Favorite favorite = Favorite::None;
+  FavoritePage from = FavoritePage::Other, expected = FavoritePage::Other;
+  double deadline = 0;
+
+  void begin(Favorite target, FavoritePage page, double now) {
+    favorite = target;
+    from = expected = page;
+    deadline = now + 1.;
+  }
+  void cancel() { *this = {}; }
+
+  // Returns the page whose native button should be activated this frame.
+  FavoritePage update(FavoritePage page, bool clickReady, double now, bool &failed) {
+    failed = false;
+    if (favorite == Favorite::None)
+      return FavoritePage::Other;
+    const bool reached = page == expected ||
+        (favorite == Favorite::Axes && expected == FavoritePage::Options &&
+         (page == FavoritePage::Controls || page == FavoritePage::Axes)) ||
+        (favorite == Favorite::Axes && expected == FavoritePage::Controls &&
+         page == FavoritePage::Axes) ||
+        (favorite == Favorite::Clutch && expected == FavoritePage::Options &&
+         page == FavoritePage::Driver);
+    if (reached && ((favorite == Favorite::Axes && page == FavoritePage::Axes) ||
+                    (favorite == Favorite::Skins && page == FavoritePage::Skins) ||
+                    (favorite == Favorite::Clutch && page == FavoritePage::Driver))) {
+      cancel();
+    } else if (now >= deadline ||
+               (!reached && page != from && page != FavoritePage::Transition)) {
+      cancel();
+      failed = true;
+    } else if (reached && clickReady) {
+      const auto destination = nextFavoritePage(favorite, page);
+      if (destination != FavoritePage::Other) {
+        from = page;
+        expected = destination;
+        deadline = now + 1.;
+        return destination;
+      }
+    }
+    return FavoritePage::Other;
+  }
+};
 } // namespace pad

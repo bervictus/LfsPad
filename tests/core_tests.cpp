@@ -1,7 +1,10 @@
 #include "core.hpp"
+#include "controller_check.hpp"
+#include "player_profiles.hpp"
 #include "insim_packets.hpp"
 #include <limits>
 #include "rumble.hpp"
+#include "steering_help.hpp"
 #include "shortcuts.hpp"
 #include <cstdlib>
 #include <iostream>
@@ -20,6 +23,126 @@ int main() {
   check(keyboardRows(Language::English, false, false)[1] == L"qwertyuiop" &&
             keyboardRows(Language::Turkish, true, false)[2] == L"ASDFGHJKLŞİ",
         "English and Turkish keyboard layouts");
+  PlayerProfiles profiles;
+  PlayerInputSettings input;
+  check(input.steeringHelp == SteeringHelp::Balanced, "new and legacy profiles default to balanced");
+  input.bindings[0] = 9;
+  input.deadzone = .32f;
+  input.cursorSpeed = 1100.f;
+  input.rumbleStrength = 60;
+  input.steeringCurve = SteeringCurve::Soft;
+  input.controllerIcons = false;
+  input.inputMonitor = true;
+  input.quickButton = 2;
+  input.shortcutSequential = true;
+  input.shortcuts[0] = {1, 6, 3, 4};
+  profiles.select(1, input);
+  check(profiles.enabled && profiles.active == 1 && profiles.current().used &&
+            input.bindings[0] == 9 && input.deadzone == .32f && input.cursorSpeed == 1100.f &&
+            input.rumbleStrength == 60 && input.steeringCurve == SteeringCurve::Soft &&
+            !input.controllerIcons && input.inputMonitor &&
+            input.quickButton == 2 && input.shortcutSequential && input.shortcuts[0][1] == 6,
+        "new profiles copy the player's current settings and shortcuts");
+  profiles.current().name = L"Çağrı";
+  input.rumbleStrength = 10;
+  input.steeringCurve = SteeringCurve::ExtraSoft;
+  input.steeringHelp = SteeringHelp::Strong;
+  input.controllerIcons = true;
+  input.bindings[0] = 8;
+  profiles.select(-1, input);
+  check(profiles.active == 0 && input.rumbleStrength == 60 &&
+            input.steeringCurve == SteeringCurve::Soft && input.steeringHelp == SteeringHelp::Balanced &&
+            !input.controllerIcons &&
+            input.bindings[0] == 9 && profiles.current().name.empty(),
+        "switching back restores the first profile independently");
+  profiles.select(1, input);
+  check(input.rumbleStrength == 10 && input.steeringCurve == SteeringCurve::ExtraSoft &&
+            input.steeringHelp == SteeringHelp::Strong &&
+            input.controllerIcons && input.bindings[0] == 8 &&
+            profiles.current().name == L"Çağrı", "switching preserves unsaved edits to each profile");
+  profiles.select(1, input);
+  profiles.select(1, input);
+  check(profiles.active == 0 && profiles.slots[2].input.rumbleStrength == 10,
+        "the last slot wraps to the first");
+  check(decodeProfileName(encodeProfileName(L"Çağrı ŞİĞÖÜ")) == L"Çağrı ŞİĞÖÜ",
+        "profile names retain Turkish letters across ANSI INI code pages");
+  check(normalizeProfileName(L"  Oyuncu 2  ") == L"Oyuncu 2" &&
+            normalizeProfileName(L"   ").empty() &&
+            normalizeProfileName(std::wstring(profileNameLimit + 1, L'x')).empty(),
+        "profile names are trimmed and bounded");
+  check(decodeProfileName(L"12").empty() && decodeProfileName(L"QQQQ").empty() &&
+            decodeProfileName(L"005B").empty() && normalizeProfileName(L"one\ntwo").empty(),
+        "invalid stored names and control characters fall back to the default");
+  ControllerCheck controllerCheck;
+  controllerCheck.update(1, 0, 0, false, false, 0);
+  check(controllerCheck.step == CheckStep::Up, "controller test ignores input held at entry");
+  controllerCheck.update(0, 0, 0, false, false, 0);
+  controllerCheck.update(5, 0, 0, false, false, 0);
+  controllerCheck.update(1, 0, 0, false, false, 0);
+  check(controllerCheck.step == CheckStep::Up, "a diagonal cannot become a single direction without release");
+  for (unsigned i = 0; i < 4; ++i) {
+    controllerCheck.update(0, 0, 0, false, false, 0);
+    controllerCheck.update(1u << i, 0, 0, false, false, 0);
+    check(controllerCheck.results[i] == CheckResult::Passed, "each D-pad direction is measured");
+  }
+  controllerCheck.update(0, 0, 0, false, false, 0);
+  controllerCheck.update(0, 255, 255, false, false, 0);
+  controllerCheck.update(0, 255, 0, false, false, 0);
+  check(controllerCheck.step == CheckStep::LT, "both triggers together cannot pass the individual test");
+  controllerCheck.update(0, 0, 0, false, false, 0);
+  controllerCheck.update(0, 180, 0, false, false, 0);
+  check(controllerCheck.step == CheckStep::LT, "partial trigger reports live without passing full-scale check");
+  controllerCheck.update(0, 255, 0, false, false, 0);
+  controllerCheck.update(0, 0, 255, false, false, 0);
+  check(controllerCheck.step == CheckStep::RT, "RT waits for both triggers to return to neutral");
+  controllerCheck.update(0, 0, 0, false, false, 0);
+  controllerCheck.update(0, 0, 255, false, false, 0);
+  check(controllerCheck.step == CheckStep::LowMotor && controllerCheck.motor == MotorPhase::Ready,
+        "first motor waits for a confirm press");
+  controllerCheck.update(0, 0, 0, true, false, 1);
+  controllerCheck.motorReply(MotorReply::Accepted);
+  check(controllerCheck.motor == MotorPhase::Pulsing, "accepted command starts a bounded pulse");
+  controllerCheck.update(0, 0, 0, false, false, 1.4);
+  check(controllerCheck.motor == MotorPhase::Feedback &&
+            controllerCheck.results[std::size_t(CheckStep::LowMotor)] == CheckResult::Pending,
+        "driver success does not pass the test without player feedback");
+  controllerCheck.update(0, 0, 0, false, true, 1.5);
+  check(controllerCheck.results[std::size_t(CheckStep::LowMotor)] == CheckResult::NotFelt &&
+            controllerCheck.step == CheckStep::HighMotor, "not felt is recorded separately from command failure");
+  controllerCheck.update(0, 0, 0, true, false, 2);
+  controllerCheck.motorReply(MotorReply::Rejected);
+  check(controllerCheck.complete() &&
+            controllerCheck.results[std::size_t(CheckStep::HighMotor)] == CheckResult::NoOutput,
+        "rejected command takes the summary path without asking for feedback");
+  ControllerCheck interruptedCheck;
+  for (unsigned i = 0; i < 6; ++i)
+    interruptedCheck.update(0, 0, 0, false, true, 0);
+  check(interruptedCheck.results[0] == CheckResult::Skipped &&
+            interruptedCheck.step == CheckStep::LowMotor, "skip leaves an untested result");
+  interruptedCheck.update(0, 0, 0, true, false, 1);
+  interruptedCheck.motorReply(MotorReply::Busy);
+  interruptedCheck.update(0, 0, 0, false, false, 1.4);
+  check(interruptedCheck.step == CheckStep::HighMotor &&
+            interruptedCheck.results[std::size_t(CheckStep::LowMotor)] == CheckResult::NoOutput,
+        "a perpetually busy driver reaches a bounded command failure");
+  interruptedCheck.update(0, 0, 0, true, false, 2);
+  interruptedCheck.interrupt();
+  interruptedCheck.update(0, 0, 0, true, false, 2.1);
+  check(interruptedCheck.interrupted && interruptedCheck.motor == MotorPhase::Ready &&
+            interruptedCheck.step == CheckStep::HighMotor,
+        "device or focus loss disarms the pulse and requires restart");
+  ControllerCheck confirmedMotor;
+  for (unsigned i = 0; i < 6; ++i)
+    confirmedMotor.update(0, 0, 0, false, true, 0);
+  confirmedMotor.update(0, 0, 0, true, false, 1);
+  confirmedMotor.motorReply(MotorReply::Accepted);
+  confirmedMotor.update(0, 0, 0, true, false, 1.4);
+  check(confirmedMotor.motor == MotorPhase::Feedback &&
+            confirmedMotor.results[std::size_t(CheckStep::LowMotor)] == CheckResult::Pending,
+        "confirm on the frame when the pulse ends does not also answer the prompt");
+  confirmedMotor.update(0, 0, 0, true, false, 1.6);
+  check(confirmedMotor.results[std::size_t(CheckStep::LowMotor)] == CheckResult::Passed,
+        "a separate confirm records that the player felt the vibration");
   for (const auto &menu : shortcutMenus)
     for (int i = 0; i < menu.count; ++i)
       check(menu.targets[i].label.english && menu.targets[i].label.turkish,
@@ -94,6 +217,92 @@ int main() {
   check(std::all_of(allDisabled.begin(), allDisabled.end(),
                     [](const ResolvedShortcut &slot) { return !slot.label && slot.item == -1; }),
         "four disabled directions do not create live targets");
+  const auto &main = shortcutMenus[std::size_t(ShortcutScreen::Main)];
+  const auto &race = shortcutMenus[std::size_t(ShortcutScreen::Race)];
+  for (const auto *menu : {&main, &race}) {
+    const auto directions = parseShortcutDirections(*menu, L"off,axes-ff,off,off");
+    const auto favorites = resolveShortcuts(*menu, directions,
+        [](const ShortcutTarget &) { return -1; });
+    check(formatShortcutDirections(*menu, directions) == L"off,axes-ff,off,off" &&
+              favorites[1].favorite == Favorite::Axes && favorites[1].item < 0 &&
+              favorites[1].label,
+          "axes favorite persists and is disabled when its first step is missing");
+  }
+  const auto skinDirections = parseShortcutDirections(garageMenu, L"skins,skin-list,off,off");
+  check(formatShortcutDirections(garageMenu, skinDirections) == L"skins,skin-list,off,off",
+        "local skin button and cross-tab favorite remain separate assignments");
+
+  ShortcutGesture gesture;
+  check(gesture.update(true, false, true, true, false, false) &&
+            !gesture.update(true, false, false, false, false, false),
+        "legacy hold closes on release");
+  check(gesture.update(true, true, true, true, false, false) &&
+            gesture.update(true, true, false, false, false, false) && gesture.waiting &&
+            gesture.update(true, true, false, false, false, false),
+        "sequential mode waits for a direction after a lone modifier press");
+  check(!gesture.update(true, true, true, true, false, false) &&
+            !gesture.update(true, true, true, false, false, false) &&
+            !gesture.update(true, true, false, false, false, false),
+        "second press dismisses the panel through release");
+  gesture.update(true, true, true, true, false, false);
+  gesture.update(true, true, true, false, true, false);
+  check(!gesture.update(true, true, false, false, false, false),
+        "using the held chord does not open a sequential panel after release");
+  gesture.update(true, true, true, true, false, false);
+  gesture.update(true, true, false, false, false, false);
+  check(!gesture.update(true, true, false, false, true, true) && !gesture.waiting,
+        "cancel leaves no armed shortcut");
+  gesture.update(true, true, true, true, false, false);
+  gesture.update(true, true, false, false, false, false);
+  check(!gesture.update(false, true, false, false, false, false) &&
+            !gesture.update(true, true, false, false, false, false),
+        "screen or device loss clears a sequential panel");
+
+  using Page = FavoritePage;
+  bool failed = false;
+  FavoriteRoute route;
+  route.begin(Favorite::Axes, Page::Entry, 0);
+  check(route.update(Page::Entry, true, .01, failed) == Page::Options &&
+            route.update(Page::Entry, true, .02, failed) == Page::Other && !failed &&
+            route.update(Page::Transition, false, .03, failed) == Page::Other && !failed,
+        "a native step runs once while waiting for the destination");
+  check(route.update(Page::Options, false, .1, failed) == Page::Other &&
+            route.update(Page::Options, true, .15, failed) == Page::Controls &&
+            route.update(Page::Controls, true, .3, failed) == Page::Axes &&
+            route.update(Page::Axes, false, .4, failed) == Page::Other && !failed &&
+            route.favorite == Favorite::None,
+        "axes route waits for available input and ends on the active axes page");
+  route.begin(Favorite::Axes, Page::Entry, 0);
+  route.update(Page::Entry, true, .01, failed);
+  check(route.update(Page::Controls, true, .2, failed) == Page::Axes,
+        "axes route accepts the control tab already open");
+  route.begin(Favorite::Skins, Page::Garage, 0);
+  check(route.update(Page::Garage, true, .01, failed) == Page::Colours &&
+            route.update(Page::Colours, true, .2, failed) == Page::Skins &&
+            route.update(Page::Skins, false, .4, failed) == Page::Other && !failed &&
+            route.favorite == Favorite::None, "skin route opens the native list from another tab");
+  route.begin(Favorite::Skins, Page::Colours, 0);
+  check(route.update(Page::Colours, false, 1., failed) == Page::Other && failed &&
+            route.favorite == Favorite::None, "missing native item expires the route");
+  route.begin(Favorite::Skins, Page::Garage, 0);
+  route.update(Page::Garage, true, .01, failed);
+  check(route.update(Page::Other, false, .1, failed) == Page::Other && failed &&
+            route.favorite == Favorite::None, "unexpected modal aborts remaining clicks");
+  route.begin(Favorite::Axes, Page::Entry, 0);
+  route.cancel();
+  check(route.update(Page::Entry, true, .1, failed) == Page::Other && !failed,
+        "cancelled route cannot reactivate when its button becomes available");
+  route.begin(Favorite::Clutch, Page::Entry, 0);
+  check(route.update(Page::Entry, true, .01, failed) == Page::Options &&
+            route.update(Page::Options, true, .2, failed) == Page::Driver &&
+            route.update(Page::Driver, false, .4, failed) == Page::Other && !failed &&
+            route.favorite == Favorite::None,
+        "clutch route opens Driver without activating a setting");
+  route.begin(Favorite::Clutch, Page::Entry, 0);
+  route.update(Page::Entry, true, .01, failed);
+  check(route.update(Page::Driver, false, .2, failed) == Page::Other && !failed &&
+            route.favorite == Favorite::None,
+        "the clutch route can finish when LFS remembers the Driver category");
   ShortcutInputDrain shortcutInput;
   shortcutInput.update(true, false, true, 3u);
   shortcutInput.update(false, false, true, 2u);
@@ -140,16 +349,32 @@ int main() {
     std::memcpy(outSim.data() + offset, &value, sizeof(value));
   };
   putFloat(48, 20.f);
+  putFloat(20, .3f);
+  putFloat(80, -.12f);
   putFloat(72, .8f);
   putFloat(96, 400.f);
   outSim[92] = 3;
   outSim[112 + 29] = char(200);
   outSim[112 + 30] = 1;
+  putFloat(112 + 36, .2f);
   RumbleSample drive;
   check(decodeOutSim(outSim.data(), outSim.size(), drive) &&
             drive.velocity[0] == 20.f && drive.engineSpeed == 400.f &&
-            drive.gear == 3 && drive.wheels[0].slip == 200 && drive.wheels[0].touching,
-        "OutSim decodes the engine, speed, gear and wheel data at the documented offsets");
+            drive.gear == 3 && drive.wheels[0].slip == 200 && drive.wheels[0].touching &&
+            drive.yawRate == .3f && drive.hasSteeringAngle && drive.steeringAngle == -.12f &&
+            drive.wheels[0].tanSlipAngle == .2f,
+        "OutSim decodes steering, motion, engine and wheel data at the documented offsets");
+  RumbleSample partial;
+  putFloat(80, INFINITY);
+  putFloat(112, INFINITY);
+  putFloat(112 + 36, INFINITY);
+  check(decodeOutSim(outSim.data(), outSim.size(), partial) &&
+            !partial.hasSteeringAngle && partial.wheels[0].deflection == 0.f &&
+            partial.wheels[0].tanSlipAngle == 0.f && partial.velocity[0] == 20.f,
+        "invalid wheel or steering fields keep valid chassis motion available");
+  putFloat(80, -.12f);
+  putFloat(112, 0.f);
+  putFloat(112 + 36, .2f);
   check(!decodeOutSim(outSim.data(), 279, drive), "partial OutSim packet ignored");
   outSim[3] = 'X';
   check(!decodeOutSim(outSim.data(), outSim.size(), drive), "other datagrams ignored");
@@ -218,12 +443,12 @@ int main() {
             stopped.engineSpeed == 0,
         "engine vibration stops with ignition off");
   const DrivingTelemetry fullTelemetry{drive, 80}, basicTelemetry{fallback, 140};
-  check(selectRumbleTelemetry(fullTelemetry, basicTelemetry, 144).sample.hasWheels,
+  check(selectDrivingTelemetry(fullTelemetry, basicTelemetry, 144).sample.hasWheels,
         "fresh OutSim keeps detailed wheel feedback");
-  const auto chaseTelemetry = selectRumbleTelemetry(fullTelemetry, basicTelemetry, 145);
+  const auto chaseTelemetry = selectDrivingTelemetry(fullTelemetry, basicTelemetry, 145);
   check(chaseTelemetry.fresh(145) && !chaseTelemetry.sample.hasWheels,
         "fresh InSim takes over after the camera stops producing OutSim");
-  check(!selectRumbleTelemetry(fullTelemetry, basicTelemetry, 320).fresh(320),
+  check(!selectDrivingTelemetry(fullTelemetry, basicTelemetry, 320).fresh(320),
         "losing both telemetry sources stops rumble");
   DrivingRumble chase;
   chase.update(drive, 80, 80, 100);
@@ -395,6 +620,177 @@ int main() {
         "native race menu while InSim is offline");
   check(axisCenter(0, 65535) == 32768, "combined trigger axis rests at center");
   check(axisCenter(-32768, 32767) == 0, "signed steering axis rests at zero");
+  check(curvedSteering(40000, 0, 65535, {}) == 40000,
+        "default steering curve leaves raw data intact");
+  for (auto curve : {SteeringCurve::Soft, SteeringCurve::ExtraSoft}) {
+    check(curvedSteering(0, 0, 65535, {curve}) == 0 &&
+              curvedSteering(32768, 0, 65535, {curve}) == 32768 &&
+              curvedSteering(65535, 0, 65535, {curve}) == 65535,
+          "soft steering preserves center and both steering locks");
+    auto previous = curvedSteering(-32768, -32768, 32767, {curve});
+    bool monotonic = true;
+    for (int value = -32767; value <= 32767; value += 29) {
+      auto shaped = curvedSteering(value, -32768, 32767, {curve});
+      monotonic &= shaped >= previous;
+      previous = shaped;
+    }
+    check(monotonic, "soft steering remains monotonic through center");
+  }
+  check(curvedSteering(16000, -32768, 32767, {SteeringCurve::ExtraSoft}) <
+            curvedSteering(16000, -32768, 32767, {SteeringCurve::Soft}) &&
+            curvedSteering(16000, -32768, 32767, {SteeringCurve::Soft}) < 16000 &&
+            curvedSteering(-16000, -32768, 32767, {SteeringCurve::Soft}) ==
+                -curvedSteering(16000, -32768, 32767, {SteeringCurve::Soft}),
+        "softness scales small motions symmetrically");
+  check(curvedSteering(-5, 0, 65535, {SteeringCurve::Soft}) == -5 &&
+            curvedSteering(5, 5, 5, {SteeringCurve::Soft}) == 5,
+        "unverified samples and degenerate ranges pass through");
+  const auto xbox = steeringRequest({SteeringCurve::Soft, fullSteering}, true, 0);
+  const auto dualSense = steeringRequest({SteeringCurve::ExtraSoft, 700, -420, 340}, false, 0x0ce6054c);
+  check(requestedSteering(xbox, true, 0).curve == SteeringCurve::Soft &&
+            requestedSteering(xbox, true, 0).limit == fullSteering &&
+            !requestedSteering(xbox, false, 0x0ce6054c).active() &&
+            requestedSteering(dualSense, false, 0x0ce6054c).curve == SteeringCurve::ExtraSoft &&
+            requestedSteering(dualSense, false, 0x0ce6054c).limit == 700 &&
+            requestedSteering(dualSense, false, 0x0ce6054c).correction == -420 &&
+            requestedSteering(dualSense, false, 0x0ce6054c).softening == 340 &&
+            !requestedSteering(dualSense, false, 0x05c4054c).active() &&
+            !steeringRequest({SteeringCurve::Soft, 700}, false, 0),
+        "steering only reaches the selected controller transport and VID/PID");
+  const auto speedOnly = steeringRequest({SteeringCurve::Linear, 700}, true, 0);
+  check(speedOnly && requestedSteering(speedOnly, true, 0).limit == 700 &&
+            !steeringRequest({}, true, 0),
+        "speed steering also works with the linear curve and can be turned off");
+  const SteeringResponse compression{SteeringCurve::Linear, 650};
+  check(curvedSteering(-1000, -1000, 1000, compression) == -650 &&
+            curvedSteering(1000, -1000, 1000, compression) == 650 &&
+            curvedSteering(0, -1000, 1000, compression) == 0 &&
+            curvedSteering(200, -1000, 1000, compression) == 200,
+        "assist compresses full lock and retains fine steering around center");
+  check(curvedSteering(500, 500, 3500, compression) == 1025 &&
+            curvedSteering(3500, 500, 3500, compression) == 2975,
+        "compressed steering respects a calibrated unsigned range");
+  bool assistMonotonic = true;
+  auto previous = curvedSteering(-1000, -1000, 1000, compression);
+  for (int value = -999; value <= 1000; ++value) {
+    const auto next = curvedSteering(value, -1000, 1000, compression);
+    assistMonotonic &= next >= previous;
+    previous = next;
+  }
+  check(assistMonotonic, "compression never reverses steering as the stick is pushed farther");
+  const SteeringResponse counter{SteeringCurve::Linear, 700, 120};
+  check(curvedSteering(0, -1000, 1000, counter) == 120 &&
+            curvedSteering(-900, -1000, 1000, counter) ==
+                curvedSteering(-900, -1000, 1000, {SteeringCurve::Linear, 700}),
+        "countersteering only biases small inputs and yields to a deliberate correction");
+  const SteeringResponse slideRecovery{SteeringCurve::Linear, 650, 320, 240};
+  check(curvedSteering(1000, -1000, 1000, slideRecovery) == 1000 &&
+            curvedSteering(-1000, -1000, 1000, slideRecovery) == -650 &&
+            curvedSteering(700, -1000, 1000, slideRecovery) > curvedSteering(700, -1000, 1000, compression),
+        "driver corrections regain steering range only in the direction that recovers the slide");
+  check(curvedSteering(-450, -1000, 1000, {SteeringCurve::ExtraSoft, 580, 420, 340}) <= 0,
+        "moderate opposing input is not reversed by the strongest correction");
+
+  RumbleSample car;
+  car.gear = 2;
+  car.hasWheels = true;
+  for (auto &wheel : car.wheels)
+    wheel.touching = true;
+  SteeringHelpState assist;
+  auto driveHelp = [&](SteeringHelp mode, double axis = 0., bool fresh = true) {
+    SteeringResponse result;
+    for (int frame = 0; frame < 30; ++frame)
+      result = assist.update(mode, SteeringCurve::Linear, car, fresh, axis, .02);
+    return result;
+  };
+  check(!driveHelp(SteeringHelp::Balanced).active(), "full steering is available when parking");
+  car.velocity = {0.f, 14.f, 0.f};
+  car.gear = 0;
+  const auto roadResponse = driveHelp(SteeringHelp::Balanced);
+  check(roadResponse.softening == 120 && roadResponse.limit >= 980 &&
+            curvedSteering(300, -1000, 1000, roadResponse) < 275,
+        "small movements are softened at road speed even if a car reports no forward gear");
+  car.gear = 2;
+  car.velocity = {0.f, 40.f, 0.f};
+  check(driveHelp(SteeringHelp::Balanced).limit == 880,
+        "clean high-speed corners retain most of the steering range");
+  for (auto &wheel : car.wheels) {
+    wheel.slip = 250;
+    wheel.tanSlipAngle = .02f;
+  }
+  check(driveHelp(SteeringHelp::Balanced).limit == 880,
+        "wheelspin alone does not trigger grip-based steering reduction");
+  car.wheels[2].tanSlipAngle = car.wheels[3].tanSlipAngle = .32f;
+  check(driveHelp(SteeringHelp::Balanced).limit == 700 &&
+            driveHelp(SteeringHelp::Strong).limit == 580,
+        "front tyre scrub progressively tightens the steering range");
+  car.velocity = {0.f, 12.f, 0.f};
+  car.yawRate = -.22f;
+  for (auto &wheel : car.wheels)
+    wheel.slip = 50;
+  driveHelp(SteeringHelp::Balanced, .35);
+  check(assist.polarity == 0, "one observed turn cannot enable directional assistance");
+  car.yawRate = .22f;
+  driveHelp(SteeringHelp::Balanced, -.35);
+  check(assist.polarity == 1, "two steady turns verify a normal steering axis");
+  car.velocity = {6.f, 20.f, 0.f};
+  car.wheels[0].slip = car.wheels[1].slip = 255;
+  car.wheels[0].tanSlipAngle = car.wheels[1].tanSlipAngle = .4f;
+  check(driveHelp(SteeringHelp::Balanced).correction == 320,
+        "confirmed rear slide and yaw generate a bounded correction into the slide");
+  car.heading = 1.57079633f;
+  car.velocity = {-20.f, -6.f, 0.f};
+  car.yawRate = -.22f;
+  check(driveHelp(SteeringHelp::Strong).correction == -420,
+        "slide correction follows car heading and works in both directions");
+  car.yawRate = .22f;
+  const auto recovering = driveHelp(SteeringHelp::Strong).correction;
+  check(recovering < 0 && recovering > -420,
+        "countersteer eases when yaw reverses and stays present while the car is still sliding");
+  car.yawRate = -.22f;
+  for (auto &wheel : car.wheels)
+    wheel.touching = false;
+  check(driveHelp(SteeringHelp::Strong).correction == 0,
+        "directional assistance stops if wheel data shows the car is airborne");
+  car.wheels[2].touching = true;
+  const auto sparseWheels = driveHelp(SteeringHelp::Balanced);
+  check(sparseWheels.correction < 0 && sparseWheels.correction >= -320,
+        "a vehicle with incomplete axle data still gets a bounded correction");
+  check(!driveHelp(SteeringHelp::Strong, 0., false).active(),
+        "a stale feed returns progressively to normal steering");
+  car.hasWheels = false;
+  const auto fallbackResponse = driveHelp(SteeringHelp::Balanced);
+  check(fallbackResponse.limit < fullSteering && fallbackResponse.correction == sparseWheels.correction,
+        "InSim alone uses the same chassis-based correction without inferring tyre slip");
+  car.heading = 0.f;
+  car.velocity = {0.3f, 20.f, 0.f};
+  check(driveHelp(SteeringHelp::Balanced).correction == 0,
+        "once the chassis is aligned the correction returns to zero even if the car is still turning");
+  car.velocity = {0.f, -20.f, 0.f};
+  check(!driveHelp(SteeringHelp::Balanced).active(), "reverse gets full lock without countersteer");
+  check(!driveHelp(SteeringHelp::Off).active() && assist.polarity == 0,
+        "turning assistance off clears its state");
+  car.hasWheels = true;
+  car.gear = 2;
+  car.heading = 0.f;
+  car.velocity = {0.f, 12.f, 0.f};
+  for (auto &wheel : car.wheels)
+    wheel.slip = 50;
+  car.yawRate = .22f;
+  driveHelp(SteeringHelp::Balanced, .35);
+  car.yawRate = -.22f;
+  driveHelp(SteeringHelp::Balanced, -.35);
+  check(assist.polarity == -1, "an inverted steering axis can be identified safely");
+  driveHelp(SteeringHelp::Off);
+  car.hasSteeringAngle = true;
+  car.velocity = {};
+  car.yawRate = 0.f;
+  car.steeringAngle = -.05f;
+  driveHelp(SteeringHelp::Balanced, .16);
+  check(assist.polarity == 0, "one direct angle cannot enable countersteer by itself");
+  car.steeringAngle = .05f;
+  check(!driveHelp(SteeringHelp::Balanced, -.16).active() && assist.polarity == 1,
+        "direct steering angle learns both directions even when parked without reducing lock");
   check(axisCenter(-10, -3) == -6, "negative calibrated axis center");
   check(axisFraction(32768, 0, 65535) == 0.f, "unsigned axis at rest");
   check(axisFraction(0, 0, 65535) == -1.f &&

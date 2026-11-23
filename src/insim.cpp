@@ -15,8 +15,8 @@ static unsigned char seekRequest = 0;
 constexpr unsigned char replayQuery = 250;
 
 static DrivingTelemetry carTelemetry;
-static ULONGLONG nextRumbleQuery = 0;
-static unsigned rumblePlayer = 0;
+static ULONGLONG nextCarQuery = 0;
+static unsigned telemetryPlayer = 0;
 static void disconnect() {
   if (socketFd != INVALID_SOCKET)
     closesocket(socketFd);
@@ -25,8 +25,8 @@ static void disconnect() {
   state = {};
   replay = {};
   carTelemetry = {};
-  nextRumbleQuery = 0;
-  rumblePlayer = 0;
+  nextCarQuery = 0;
+  telemetryPlayer = 0;
   nextReplayQuery = lastReplayInfo = seekDeadline = 0;
   retry = GetTickCount64() + 2000;
 }
@@ -49,21 +49,21 @@ unsigned short inSimPort() {
   }();
   return port;
 }
-DrivingTelemetry pollInSimRumble(bool enabled) {
+DrivingTelemetry pollInSimCarTelemetry(bool enabled) {
   const auto player = enabled ? state.localPlayer : 0;
-  if (player != rumblePlayer) {
+  if (player != telemetryPlayer) {
     carTelemetry = {};
-    nextRumbleQuery = 0;
-    rumblePlayer = player;
+    nextCarQuery = 0;
+    telemetryPlayer = player;
   }
-  if (rumblePlayer) {
+  if (telemetryPlayer) {
     const auto now = GetTickCount64();
-    if (now >= nextRumbleQuery) {
+    if (now >= nextCarQuery) {
       // IS_SMALL / SMALL_AII only requests existing car data.
       const unsigned char query[]{2, 4, rumbleCarRequest, 11,
-                                  static_cast<unsigned char>(rumblePlayer), 0, 0, 0};
+                                  static_cast<unsigned char>(telemetryPlayer), 0, 0, 0};
       sendNow(query, sizeof(query));
-      nextRumbleQuery = now + 40;
+      nextCarQuery = now + 40;
     }
   }
   return carTelemetry;
@@ -192,8 +192,8 @@ SimState pollSim() {
             state.localPlayer = 0;
           tiny(14);
         }
-        if (rumblePlayer && rumblePlayer == state.localPlayer &&
-            decodeInSimRumble(p, n, rumblePlayer, static_cast<std::uint32_t>(now),
+        if (telemetryPlayer && telemetryPlayer == state.localPlayer &&
+            decodeInSimRumble(p, n, telemetryPlayer, static_cast<std::uint32_t>(now),
                               carTelemetry.sample))
           carTelemetry.received = now;
         if (p[1] == 64 && n == 8 && p[3] == 0) {

@@ -1,5 +1,59 @@
 # LfsPad test notları
 
+0.3.0 ön sürümü aşağıda 0.3.0, 0.3.1 ve 0.3.2 olarak kaydedilen yerel denemelerin son değişikliklerini bir araya getirir. 0.3.1 ve 0.3.2 yerel test etiketleridir.
+
+## LfsPad 0.3.2 — Karşı direksiyon düzeltmesi
+
+- Kullanıcının South City’de F710 ile yaptığı sürüşten alınan 5.502 kontrolcü ve OutSim örneği iki derlemenin direksiyon hesaplamasından geçirildi. Kaymayı toparlayan, neredeyse sonuna kadar çevrilmiş 730 analog girdisinde ortalama çıkış %84,5’ten %97,9’a çıktı. Analog merkezine yakın 290 kayma örneğinde doğru yöndeki ortalama çıkış %5,2’den %25,3’e çıktı. Bu ölçümler aynı kayıt üzerinde hesaplandı. Düzeltmeyle yeni bir fiziksel tur ölçülmedi.
+- 305 çekirdek kontrolü, sanal kontrolcü testleri ve 63 kurulum kontrolü geçti. Testler doğru yönde dönüş aralığının açılmasını, güçlü sürücü girdisinin yönünün çevrilmemesini ve araç toparlanırken karşı direksiyonun azalmasını kapsadı.
+- `C:\LFS` aynı 0.3.2 sürümüyle güncellendi. Önceki DLL yedeklendi. Ayarlar, RFS dosyaları ve başlangıç betiği dosya özetleriyle doğrulandı.
+
+## LfsPad 0.3.2 — Direksiyon yardımı düzeltmesi
+
+- Blackwood’da XR GT’nin 36 saniyelik OutSim akışında önceki yön algılama koşuluna yalnızca 7 örnek uydu. Normal dönüşlerde direksiyon açısının ve açısal hızın işareti 678 örneğin 677’sinde eşleşti. Düzeltme eksen yönünü kırpılmamış kontrolcü girdisi ve oyunun bildirdiği açıdan öğreniyor. Açı alınamazsa araç hareketine dönüyor.
+- Yeni 32 bit DLL, XR GT test kopyasında F710 ile açıldı. Canlı giriş göstergesi, oyuna iletilen sol X eksenini gördü. Otomatik testler ayrıca dururken yön doğrulamayı, eksik tekerlek ve vites verisini, InSim ile yumuşatmayı, geri gitmeyi ve ters ekseni kapsadı. 302 çekirdek kontrolü, sanal kontrolcü testleri ve 63 kurulum kontrolü geçti.
+- Aynı 0.3.2 sürümü `C:\LFS` üzerine kuruldu. Ayarlar, RFS dosyaları ve eski DLL yedeği dosya özetleriyle doğrulandı. HRD SAX moduyla South City’de piste çıkıldı. Oyundan gelen 280 baytlık pakette direksiyon açısı ve dört tekerin temas bilgisi okundu. Fiziksel viraj testi yapılmadı.
+
+## LfsPad 0.3.2 — Direksiyon yardımı
+
+- XR GT ile LFS 0.8C38 test kopyasında F710 bağlıyken Dengeli yardım etkinleşti ve duran araçta direksiyon aralığı %100 kaldı. Kamera başka araca geçince yardım devreden çıktı.
+- Blackwood’da yapay zekânın sürdüğü XR GT’den alınan 1.202 OutSim örneği incelendi. Dönüş içeren 1.151 örnekte açısal hızın işareti araç yönündeki değişimle eşleşti. İlk iki tekerlek örneği arka, sonraki ikisi ön aksa karşılık geldi.
+- 297 çekirdek kontrolü, sanal kontrolcü testleri ve 63 kurulum kontrolü geçti. Testler park ve geri manevrayı, ön lastik kaymasını, iki yönlü karşı direksiyonu, ters ekseni, havadaki aracı, telemetri kaybını ve kararlı analog girdisine öncelik verilmesini kapsadı. Hızlı virajlarda fiziksel F710 sürüş hissi sınanmadı.
+- `C:\LFS` güncellendi, önceki DLL yedeklendi ve kontrolcü ayarları ile RFS dosyaları doğrulandı. 0.3.2 ile oyun yeniden açıldı. RFS ve F710 açılışta algılandı.
+
+## LfsPad 0.3.1 — Hıza bağlı direksiyon
+
+- LFS 0.8C38 test kopyasında XR GT ve bağlı F710 ile dururken Dengeli modda %90 ve Güçlü modda %82 sınırı günlükte görüldü. Yarış menüsünde sınır devreden çıktı. Güçlü ayarı Türkçe menüden kaydedildi, oyun yeniden açıldığında İngilizce menüde aynı profilde göründü. Kapalı ayarı kaydedilip piste dönüldüğünde hız sınırlaması devreye girmedi.
+- Titreşim kapalıyken hız verisinin OutSim’den geldiği doğrulandı. OutSim kapatılıp test kopyası yeniden açıldığında InSim hız verisini sağladı.
+- 284 çekirdek kontrolü, sanal kontrolcü testleri ve 63 kurulum kontrolü geçti. Otomatik testler tam analog girişini, kalibre eksenleri, hız değişiminde kademeli geçişi ve hız bilgisi kesildiğinde son sınırın korunmasını kapsadı. Yüksek hızda fiziksel sürüş hissi sınanmadı.
+- `C:\LFS` güncellendi. Önceki DLL yedeği, kullanıcı ayarları ve RFS dosyaları dosya özetleriyle doğrulandı. Yeniden açılışta LfsPad 0.3.1, RFS ve F710 birlikte algılandı.
+
+## LfsPad 0.3.0 — Sürüş
+
+- LFS 0.8C38’in çevrimdışı test kopyasında XR GT ile pistte **Sürüş → Otomatik debriyaj** açıldı. İngilizce Sürücü sayfasında odak doğrudan **Auto clutch** düğmesine geldi. Tanılama onayıyla `[no]` değeri `[yes]` oldu. Sıralı vites seçili kaldı ve piste dönüldü.
+- Test profilinin direksiyon eğrisi kaydedildi ve oyun yeniden başladığında etkinleşti. Yarış menüsü açıldığında kapandığı, piste dönünce yeniden etkinleştiği günlükte doğrulandı. F710 bağlıydı. Sürüş hissi ve debriyajsız kalkış fiziksel kontrolcüyle sınanmadı.
+- İki otomatik test paketi, 276 çekirdek kontrolü ve 63 kurulum kontrolü geçti. Direksiyon eğrisi kontrolleri merkez ve uç değerleri, eksen aralıklarını, cihaz eşleşmesini ve profil kaydını kapsadı.
+- `C:\LFS` güncellendi ve yeniden açıldı. Kurulu 32 bit DLL paketle eşleşti ve eski DLL yedeği doğrulandı. LfsPad ayarları, RFS dosyaları ve oyun başlangıç betiğinin dosya özetleri değişmedi. Açılışta LfsPad 0.3.0 ve RFS birlikte yüklendi, F710 algılandı ve gaz ile fren ayrı eksenler olarak kaydedildi.
+
+## Oyuncu profilleri
+
+- Mevcut ayarlardan ikinci profil oluşturuldu. Oyunda adlandırıldı ve titreşim %40 olarak ayrı kaydedildi. Yeniden açılışta profil adı ve değeri geri geldi. Varsayılana geçince %50 değeri görüldü, iptal sonrasında kayıtlı ikinci profil etkin kaldı.
+- İngilizce ve Türkçe arayüzde ekran klavyesi denendi. Türkçe klavyeden girilen **Ğ** karakteri de INI kaydında doğrulandı. Otomatik testler bağımsız tuş, analog, simge ve menü kısayolu ayarlarını kapsadı.
+- Yerel 32 bit DLL mevcut güncelleme yoluyla kuruldu. Eski DLL yedeklendi. Orijinal INI, RFS dosyaları ve başlangıç betiği dosya özetleriyle doğrulandı.
+
+## Kontrolcümü test et
+
+- Gerçek F710 bağlıyken İngilizce test ekranı açıldı. Tanılama girdileriyle giriş adımları atlandı, ardından düşük ve yüksek frekans titreşimleri ayrı ayrı gönderildi. XInput iki komutu da kabul etti ve çıkışlar süre sonunda sıfırlandı. İki **Hissedilmedi** cevabının sonuç ekranına işlendiği doğrulandı.
+- D-pad'de çapraz basış, iki tetik aynı anda sıkıldığında adımın ilerlememesi, yeniden nötr konum bekleme, süre sonunda titreşimin kesilmesi ve bağlantı veya odak kaybında testin durması otomatik testlerle denetlendi. Fiziksel tuş basma ve titreşimi hissetme doğrulaması kullanıcıya bağlıdır.
+- 32 bit DLL, önceki DLL yedeklenerek güncellendi. INI, RFS DLL'leri ve InSim başlangıç betiği dosya özetleriyle karşılaştırıldı.
+
+## Menü favorileri ve art arda tuş basma
+
+- LFS 0.8C38'de tek onayla ana menüden **Eksenler / FF** sayfasına Türkçe ve İngilizce ulaşıldı. İngilizce durdurma menüsünden aynı sayfa açıldı ve piste geri dönüldü.
+- İngilizce XR GT garajında **Frenler** sekmesinden, kurulu RFS oturumunda ise Türkçe Veloce GT garajının **Bilgi** sekmesinden yerel kaplama listesi açıldı. Hazır renk seçiliyken favorinin soluk kaldığı görüldü.
+- Oyun içi kontrollerde tanılama girdileri kullanıldı. Alt+Tab ile seçili favori temizlendi. Kısayol kullanım ayarı oyun içinden kaydedildi ve INI kaydı doğrulandı. F710 gerçek oturumlarda algılandı. Fiziksel tuşa basma, bağlantıyı kesme ve tuş basılıyken piste dönme durumları fiziksel cihazla ayrıca sınanmadı.
+- 240 çekirdek kontrolü, sanal kontrolcü testleri ve 63 kurulum kontrolü geçti. Yerel 32 bit DLL mevcut yöntemle güncellendi. Önceki DLL yedeği, LfsPad ayarları ve RFS dosyaları dosya özetleriyle doğrulandı. Kurulu LFS sürecinde `dxgi.dll`, `dinput8.dll` ve `rfs.dll` birlikte yüklendi.
+
 ## LfsPad 0.2.0 — RFS yükleme düzeltmesi
 
 - RFS’nin oyun klasöründeki `dinput8.dll` dosyasını geri yüklemesi, ilk 0.2.0 kurulumunda LfsPad’in devre dışı kalmasına yol açtı. Kurulum LfsPad’i `dxgi.dll` dosyasına taşıdı. Etkin RFS yükleyicisi ve LfsPad ayarları aynı dosya özetleriyle korundu.

@@ -17,6 +17,7 @@ extern std::atomic<unsigned> captureQuickInput;
 extern std::atomic<bool> monitorInput;
 extern std::atomic<int> pedalSlot;
 extern std::atomic<std::uint64_t> nativePedals;
+extern std::atomic<std::uint64_t> steeringAssist;
 extern std::atomic<bool> stopping;
 std::wstring path(const wchar_t *name);
 inline HMODULE loadSystemLibrary(const wchar_t *name) {
@@ -34,12 +35,12 @@ void frame(IDXGISwapChain *swap);
 void releaseTarget();
 void observeOutSim(const char *data, int size);
 DrivingTelemetry drivingTelemetry();
-DrivingTelemetry pollInSimRumble(bool enabled);
+DrivingTelemetry pollInSimCarTelemetry(bool enabled);
 DWORD driveMotors(ControllerId slot, MotorLevels levels, HWND window, bool diagnostic);
 void stopMotors();
 struct DrivingInputSample {
   ULONGLONG tick = 0;
-  float steering = 0, triggers = 0, throttle = 0, brake = 0;
+  float steering = 0, rawSteering = 0, triggers = 0, throttle = 0, brake = 0;
   bool steeringAvailable = false, triggersAvailable = false, povAvailable = false;
   bool splitPedals = false;
   bool buttonsFiltered = false, axesFiltered = false, ambiguous = false;

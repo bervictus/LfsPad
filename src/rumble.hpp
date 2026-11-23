@@ -10,11 +10,11 @@ struct RumbleSample {
   std::uint32_t time = 0;
   std::array<float, 3> acceleration{}, velocity{};
   float throttle = 0, engineSpeed = 0;
-  float heading = 0;
+  float heading = 0, yawRate = 0, steeringAngle = 0;
   unsigned char gear = 0;
-  bool hasWheels = false;
+  bool hasWheels = false, hasSteeringAngle = false;
   struct Wheel {
-    float deflection = 0;
+    float deflection = 0, tanSlipAngle = 0;
     unsigned char slip = 0;
     bool touching = false;
   };
@@ -29,7 +29,8 @@ inline float telemetryFloat(const void *data) {
 
 inline bool decodeCarMotion(const char *data, RumbleSample &sample) {
   sample.heading = telemetryFloat(data + 12);
-  if (!std::isfinite(sample.heading))
+  sample.yawRate = telemetryFloat(data + 8);
+  if (!std::isfinite(sample.heading) || !std::isfinite(sample.yawRate))
     return false;
   for (int axis = 0; axis < 3; ++axis) {
     sample.acceleration[axis] = telemetryFloat(data + 24 + axis * 4);
@@ -50,6 +51,8 @@ inline bool decodeOutSim(const char *data, int size, RumbleSample &sample) {
     return false;
   next.hasWheels = true;
   next.throttle = telemetryFloat(data + 72);
+  next.steeringAngle = telemetryFloat(data + 80);
+  next.hasSteeringAngle = std::isfinite(next.steeringAngle);
   next.gear = static_cast<unsigned char>(data[92]);
   next.engineSpeed = telemetryFloat(data + 96);
   if (!std::isfinite(next.throttle) || !std::isfinite(next.engineSpeed))
@@ -60,8 +63,10 @@ inline bool decodeOutSim(const char *data, int size, RumbleSample &sample) {
     state.deflection = telemetryFloat(data + offset);
     state.slip = static_cast<unsigned char>(data[offset + 29]);
     state.touching = data[offset + 30] != 0;
+    const float angle = telemetryFloat(data + offset + 36);
+    state.tanSlipAngle = std::isfinite(angle) ? angle : 0.f;
     if (!std::isfinite(state.deflection))
-      return false;
+      state.deflection = 0.f;
   }
   sample = next;
   return true;
@@ -119,9 +124,9 @@ struct DrivingTelemetry {
   }
 };
 
-inline DrivingTelemetry selectRumbleTelemetry(const DrivingTelemetry &outSim,
-                                             const DrivingTelemetry &inSim,
-                                             std::uint64_t now) {
+inline DrivingTelemetry selectDrivingTelemetry(const DrivingTelemetry &outSim,
+                                               const DrivingTelemetry &inSim,
+                                               std::uint64_t now) {
   // Use wheel data when it is current. InSim is already sampled in the
   // background of the current driving session when the camera changes.
   return outSim.fresh(now, 65) || !inSim.fresh(now) ? outSim : inSim;

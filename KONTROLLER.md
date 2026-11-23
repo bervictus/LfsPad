@@ -6,6 +6,8 @@ Menüde iki tetiği birlikte tut. Ayarlarda **LB/RB** ile Genel, Kontroller, Sü
 
 **Kontrolcü simgeleri** satırı, köşelerdeki normal tuş ipuçlarını açar veya kapatır. Kapatınca atama, kısayol ve onay gibi anlık yönlendirmeler yazıyla görünür.
 
+**Genel → Oyuncu profili** satırında sol/sağ ile üç profil arasında geç. Yeni seçtiğin profil o anki LfsPad kontrolcü ayarlarını kopyalar. Tuş atamaları, analog ölü bölgesi, imleç hızı, titreşim, simgeler ve menü kısayolları her profilde ayrı kaydedilir. **X** ekran klavyesini açar. Adı yazıp **Start** ile onayla, sonra **A** ile ayarları kaydet. **B**, ayarlar ekranında kaydedilmemiş profil veya ayar değişikliklerini iptal eder. LFS’nin sürüş eşlemelerini oyunun **Seçenekler → Kontroller** menüsünden yönet.
+
 ## Menüde hangi tuşu kullanacağım?
 
 | Yapmak istediğin | Varsayılan tuş |
@@ -39,6 +41,10 @@ Otomatik seçimde LfsPad önce bağlı XInput kollarına bakar. İstediğin kolu
 
 Bir hedefi başka bir yöne verirsen iki kısayol yer değiştirir. Bir yönü boş bırakmak için **Kapalı**’yı seç. **X**, seçili menünün dört yönünü ilk hâline getirir. Bitirince **A** ile ayarlara dön ve kaydetmek için bir kez daha **A**’ya bas. **B**, açık ekrandaki değişiklikleri iptal eder.
 
+Ana menüde ve durdurma menüsünde bir yöne **Eksenler / FF** atayabilirsin. Yönü seçip A’ya bastığında oyun doğrudan pedal eksenlerinin ayarına gider. Garajda **Kaplama listesi** hedefini seçersen A, bulunduğun sekmeden kaplama listesini açar. Kaplama seçmek için LFS’de düzenlenebilir bir renk kullan.
+
+**Kısayollar → Kısayol kullanımı** satırında **Art arda bas**’ı seçip kaydedebilirsin. Back’e basıp bırak, yönü seç ve A’ya bas. Panel açıkken Back’e tekrar basmak veya B’ye basmak seçimi iptal eder. Back’i bir D-pad yönüne atadıysan sol analogla dört yönü de seçebilirsin.
+
 ## Tuşları değiştirmek
 
 Menüde **LT + RT**’yi yaklaşık yarım saniye basılı tut. **Kontroller** sekmesinde değiştirmek istediğin görevin üzerine gel ve **X**’e bas. Tuşları bırak, sonra kullanmak istediğin tuşa bas. Vazgeçersen iki tetiğe birlikte bas. Tuşları D-pad sol/sağ ile listeden de seçebilirsin.
@@ -68,7 +74,19 @@ Dokuz menü görevine A, B, X, Y, LB, RB, Start, Back, R3, L3 veya dört D-pad y
 
 **Tekrar izlerken** A duraklatır veya devam ettirir. LT beş saniye geri, RT beş saniye ileri sarar. Bir adım daha sarmak için tetiği bırakıp yeniden bas. B veya Start tekrar menüsünü açar.
 
+## Direksiyon ve debriyaj
+
+**LT + RT → Sürüş → Direksiyon yardımı** satırında **Dengeli**, **Güçlü** veya **Kapalı** seçip A ile kaydet. Varsayılan **Dengeli**, park ve geri manevralarda tam dönüşe izin verir. Hızlı giderken küçük analog hareketlerin korunur. Ön lastiklerin yana kaymaya başladığı virajlarda büyük hareketler yumuşatılır. **Güçlü** daha fazla yardım verir.
+
+LfsPad, analogu iki yöne çevirdiğinde oyunun bildirdiği direksiyon açısından eksen yönünü doğrular. Direksiyon açısı bilgisi yoksa bunu virajlarda aracın dönüşünden öğrenir. Araç belirgin şekilde yanlarsa karşı direksiyon yardımı kayma azaldıkça geri çekilir. Analogu kaymayı toparlayan yöne doğru güçlü biçimde çevirdiğinde direksiyon aralığı yeniden açılır.
+
+**Direksiyon eğrisi** aynı sekmede ayrı bir ayardır. **Yumuşak** ve **Çok yumuşak**, sol analogun merkezindeki küçük hareketleri azaltır. İki ayar birlikte kullanılabilir ve oyuncu profiline kaydedilir. Direksiyon için sol analogun yatay eksenini kullanan tek bir kontrolcü bağlıyken sürüşte devreye girerler.
+
+Piste çıkıp durdurma menüsünü aç. **LT + RT → Sürüş → Otomatik debriyaj** satırında **A**’ya bas. LfsPad, **Seçenekler → Sürücü** ekranında oyunun debriyaj düğmesine odaklanır. **A** ile ayarı aç veya kapat. Sıralı vites modunda vitesi sen değiştirirsin. LFS bu seçeneği uygun araç ve vites modunda gösterir.
+
 ## Titreşim
+
+**LT + RT → Genel → Kontrolcümü test et** ekranında oyun sırayla dört D-pad yönünü, LT ve RT’yi ayrı ayrı denetler. İki tetik değeri ekranda yüzde olarak görünür. Her titreşim adımında A kısa bir titreşim gönderir. Ardından A ile hissettiğini, X ile hissetmediğini işaretle. Komut sürücüye ulaşamazsa sonucu ekranda görürsün. X ile bir adımı atlayabilir, B ile ayarlara dönebilirsin.
 
 LfsPad ayarlarında **Sürüş → Sürüş titreşimi** satırına geç. Sol/sağ ile şiddeti ayarla, X ile dene, A ile kaydet. İlk kurulumda şiddet %50’dir. Kapatmak için %0’ı seç. F710’da kolun üzerindeki titreşim düğmesini de aç. X ile yaptığın testten sonra sürücünün titreşim komutunu kabul edip etmediğini ekranda görebilirsin.
 

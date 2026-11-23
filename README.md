@@ -4,13 +4,17 @@
 
 LfsPad ile Live for Speed’de tek oyunculu bir yarış açabilir, garajda arabanı ayarlayıp piste dönebilirsin. Menüleri kontrolcüyle kullanırsın. Mod oyunla birlikte açılır.
 
+0.3.0’daki **Direksiyon yardımı**, LFS’nin dengeli klavye sürüşünden esinleniyor. Park ederken tam dönüşü koruyor ve araç kaymaya başladığında karşı direksiyon desteği veriyor. Analogla yaptığın güçlü düzeltmelerde dönüş aralığı yeniden açılıyor. [Kontrolcü rehberi](KONTROLLER.md)
+
 ## Kurulum ve kaldırma
 
-1. LFS’yi kapat ve [0.2.0 RFS düzeltmesini içeren kurucuyu indir](https://github.com/bervictus/LfsPad/releases/download/v0.2.0/LfsPad-0.2.0-rfs-setup.exe).
+1. LFS’yi kapat ve kullanacağın sürümün `-rfs-setup.exe` kurucusunu aç. Yayınlanan paketleri [sürümler sayfasında](https://github.com/bervictus/LfsPad/releases) bulabilirsin.
 2. **İleri**’ye bas ve kurucunun bulduğu klasörü kontrol et. Oyun başka bir yerdeyse **Göz at** ile `LFS.exe` dosyasının bulunduğu klasörü seç.
 3. **Kur**’a bas ve oyunu aç. LfsPad zaten kuruluysa **Güncelle**’ye bas. Tuş atamaların ve diğer ayarların korunur.
 
 Kurucu, LFS’nin başlangıç betiğinde ayarlı olan InSim portunu kullanır. LfsPad’in kullandığı porta varsayılan olarak yalnızca bu bilgisayardan bağlanılabilir. Başka bir bilgisayardaki InSim aracını da kullanıyorsan [InSim ayarına](ARCHITECTURE.md#insim-bağlantısı) bak.
+
+Ön sürümleri GitHub’dan indirip kurucuyla yükleyebilirsin. Otomatik güncelleme yalnızca kararlı sürümleri yükler.
 
 İlk 0.2.0 paketini kurduysan yeni EXE’yi bir kez çalıştırıp **Güncelle**’ye bas. Bu işlem LfsPad’i ayrı bir dosyaya taşır, böylece RFS kendi yükleyicisini güncelleyebilir. Kaldırmak istediğinde aynı EXE’yi aç ve **LfsPad’i kaldır**’a bas. ZIP paketini tercih edersen [elle kurulum adımlarını](ARCHITECTURE.md#kurulum-betikleri) izleyebilirsin.
 

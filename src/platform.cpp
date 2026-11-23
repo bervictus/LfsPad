@@ -22,6 +22,7 @@ std::atomic<unsigned> captureQuickInput{0};
 std::atomic<bool> monitorInput{false};
 std::atomic<int> pedalSlot{-1};
 std::atomic<std::uint64_t> nativePedals{0};
+std::atomic<std::uint64_t> steeringAssist{0};
 std::atomic<bool> stopping{false};
 std::wstring path(const wchar_t *name) {
   wchar_t p[32768];
@@ -328,16 +329,23 @@ DrivingInputSample drivingInputSample(ULONGLONG since) {
   std::lock_guard<std::mutex> lock(hooksMutex);
   const auto now = GetTickCount64();
   DrivingInputSample result;
+  const GUID *device = nullptr;
   for (const auto &entry : gamepads) {
-    const auto &sample = entry.second.sample;
+    const auto &format = entry.second;
+    const auto &sample = format.sample;
     if (!sample.tick || sample.tick < since || now - sample.tick > 500)
       continue;
-    if (result.tick) {
+    if (device && !IsEqualGUID(*device, format.device)) {
       result = {};
       result.ambiguous = true;
       break;
     }
-    result = sample;
+    device = &format.device;
+    // Both RFS and LFS can open the same physical device. Prefer the most
+    // recent reading with a known steering axis over treating it as two pads.
+    if (!result.tick || (sample.steeringAvailable != result.steeringAvailable
+                             ? sample.steeringAvailable : sample.tick >= result.tick))
+      result = sample;
   }
   return result;
 }
@@ -469,6 +477,17 @@ static void readAxisRanges(void *obj, GetProperty getProperty, GamepadFormat &fo
   format.rangesKnown = true;
 }
 
+static void applySteeringResponse(unsigned char *value, const Control &control,
+                                  SteeringResponse response) {
+  if (!response.active() || control.meterAxis != MeterAxis::Steering ||
+      !control.rangeAvailable)
+    return;
+  LONG axis;
+  std::memcpy(&axis, value, sizeof(axis));
+  axis = curvedSteering(axis, control.minimum, control.maximum, response);
+  std::memcpy(value, &axis, sizeof(axis));
+}
+
 static void writePedals(const GamepadFormat &format, void *data, bool suppressed,
                        DrivingInputSample &sample) {
   std::uint8_t right = 0, left = 0;
@@ -515,6 +534,7 @@ static HRESULT STDMETHODCALLTYPE stateHook(void *obj, DWORD size, void *data) {
   const auto quick = captureQuickInput.load();
   const bool observe = monitorInput.load();
   const unsigned testPov = diagnosticDrivingPov.load();
+  const auto steer = steeringAssist.load();
   if (SUCCEEDED(hr) && data) {
     std::lock_guard<std::mutex> lock(hooksMutex);
     auto gamepad = gamepads.find(obj);
@@ -523,10 +543,13 @@ static HRESULT STDMETHODCALLTYPE stateHook(void *obj, DWORD size, void *data) {
     auto &format = gamepad->second;
     if (!supportedGamepad(format))
       return hr;
-    if (!(axes || buttons || quick || observe || format.splitPedals || testPov < 36000))
+    const auto response = requestedSteering(steer, format.xinput, format.vidpid);
+    if (!(axes || buttons || quick || observe || format.splitPedals || testPov < 36000 ||
+          response.active()))
       return hr;
     if (format.size == size && !format.controls.empty()) {
-      if ((observe || axes || (quick & (rightStickMask | triggerAxisMask | leftStickMask))) &&
+      if ((observe || axes || response.active() ||
+           (quick & (rightStickMask | triggerAxisMask | leftStickMask))) &&
           !format.rangesKnown)
         readAxisRanges(obj, hooks.getProperty, format);
       DrivingInputSample sample;
@@ -550,11 +573,18 @@ static HRESULT STDMETHODCALLTYPE stateHook(void *obj, DWORD size, void *data) {
           if (observe && (*dest & 0x80))
             sample.buttonsDown |= mask;
         } else {
+          if (observe && !filtered && control.meterAxis == MeterAxis::Steering && control.rangeAvailable) {
+            LONG value;
+            std::memcpy(&value, dest, sizeof(value));
+            sample.rawSteering = axisFraction(value, control.minimum, control.maximum);
+          }
           if (filtered)
             std::memcpy(dest, &control.neutral, sizeof(control.neutral));
           else if (control.kind == ControlKind::Pov && testPov < 36000 &&
                    control.offset == offsetof(DIJOYSTATE2, rgdwPOV))
             std::memcpy(dest, &testPov, sizeof(testPov));
+          else
+            applySteeringResponse(dest, control, response);
           if (!observe)
             continue;
           if (control.kind == ControlKind::Pov && !sample.povAvailable) {
@@ -592,16 +622,17 @@ static HRESULT STDMETHODCALLTYPE stateHook(void *obj, DWORD size, void *data) {
 }
 static HRESULT STDMETHODCALLTYPE dataHook(void *obj, DWORD size, void *data,
                                           DWORD *count, DWORD flags) {
-  GetData orig;
+  DeviceHooks hooks;
   {
     std::lock_guard<std::mutex> l(hooksMutex);
-    orig = deviceHooks.at(*reinterpret_cast<void ***>(obj)).data;
+    hooks = deviceHooks.at(*reinterpret_cast<void ***>(obj));
   }
-  auto hr = orig(obj, size, data, count, flags);
+  auto hr = hooks.data(obj, size, data, count, flags);
   const bool axes = captureRaceAxes.load();
   const bool buttons = captureButtons.load();
   const auto quick = captureQuickInput.load();
-  if (SUCCEEDED(hr) && (axes || buttons || quick) && count && data &&
+  const auto steer = steeringAssist.load();
+  if (SUCCEEDED(hr) && (axes || buttons || quick || steer) && count && data &&
       (size == sizeof(DIDEVICEOBJECTDATA) ||
        size == sizeof(DIDEVICEOBJECTDATA_DX3))) {
     std::lock_guard<std::mutex> lock(hooksMutex);
@@ -612,22 +643,36 @@ static HRESULT STDMETHODCALLTYPE dataHook(void *obj, DWORD size, void *data,
       *count = 0;
       return hr;
     }
+    auto &format = gamepad->second;
+    const auto response = requestedSteering(steer, format.xinput, format.vidpid);
+    if (!buttons && !quick && !response.active())
+      return hr;
+    if (response.active() && !format.rangesKnown)
+      readAxisRanges(obj, hooks.getProperty, format);
     auto events = static_cast<unsigned char *>(data);
-    const auto &controls = gamepad->second.controls;
+    const auto &controls = format.controls;
     DWORD out = 0;
     for (DWORD i = 0; i < *count; ++i) {
       DWORD offset;
       std::memcpy(&offset, events + i * size, sizeof(offset));
-      const bool captured = std::any_of(
-          controls.begin(), controls.end(), [=](const Control &control) {
-            return control.offset == offset &&
-                   filterControl(control, buttons, axes, quick);
+      const bool captured = std::any_of(controls.begin(), controls.end(),
+          [=](const Control &control) {
+            return control.offset == offset && filterControl(control, buttons, axes, quick);
           });
-      if (!captured) {
-        if (out != i)
-          std::memcpy(events + out * size, events + i * size, size);
-        ++out;
+      if (captured)
+        continue;
+      if (out != i)
+        std::memcpy(events + out * size, events + i * size, size);
+      if (response.active()) {
+        const auto steering = std::find_if(controls.begin(), controls.end(),
+            [=](const Control &control) {
+              return control.offset == offset && control.meterAxis == MeterAxis::Steering;
+            });
+        if (steering != controls.end())
+          applySteeringResponse(events + out * size + offsetof(DIDEVICEOBJECTDATA, dwData),
+                                *steering, response);
       }
+      ++out;
     }
     *count = out;
   }
@@ -941,6 +986,7 @@ BOOL WINAPI DllMain(HINSTANCE h, DWORD reason, void *) {
     pad::monitorInput.store(false);
     pad::pedalSlot.store(-1);
     pad::nativePedals.store(0);
+    pad::steeringAssist.store(0);
   }
   return TRUE;
 }
