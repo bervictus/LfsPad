@@ -14,7 +14,7 @@ LfsPad ile Live for Speed’de tek oyunculu bir yarış açabilir, garajda araba
 
 Kurucu, LFS’nin başlangıç betiğinde ayarlı olan InSim portunu kullanır. LfsPad’in kullandığı porta varsayılan olarak yalnızca bu bilgisayardan bağlanılabilir. Başka bir bilgisayardaki InSim aracını da kullanıyorsan [InSim ayarına](ARCHITECTURE.md#insim-bağlantısı) bak.
 
-0.4.0’a geçmek için GitHub’daki kurucuyu bir kez çalıştır. Sonraki sürümleri oyun içinden de kurabilirsin.
+0.4.0 veya üzeri kuruluysa sonraki sürümleri oyun içinden kurabilirsin. Eski sürümden geçiyorsan GitHub’daki kurucuda **Güncelle**’yi seç.
 
 İlk 0.2.0 paketini kurduysan yeni EXE’yi bir kez çalıştırıp **Güncelle**’ye bas. Bu işlem LfsPad’i ayrı bir dosyaya taşır, böylece RFS kendi yükleyicisini güncelleyebilir. Kaldırmak istediğinde aynı EXE’yi aç ve **LfsPad’i kaldır**’a bas. ZIP paketini tercih edersen [elle kurulum adımlarını](ARCHITECTURE.md#kurulum-betikleri) izleyebilirsin.
 
@@ -46,7 +46,7 @@ Menü ipuçları ekranın sol ve sağ alt köşelerinde görünür. **LT + RT** 
 
 ## Ayarlar, RFS ve güncellemeler
 
-LFS’de **Seçenekler → LfsPad**’i aç veya bir menüde **LT + RT**’yi basılı tut. **LB/RB** ile ayar kategorilerini değiştir. RFS yüklüyse LFS menüsünde **LB + RB**’ye birlikte basarak RFS imlecini aç. Sağ analogla ilerle, **A** ile tıkla veya sürükle, D-pad ile kaydır ve **B** ile gezinmeye dön.
+LFS’nin **Seçenekler** listesinden **LfsPad** sayfasını seç. **LT + RT** kısayolu da aynı sayfayı açar. **LB/RB** ile kategorileri değiştir. RFS yüklüyse LFS menüsünde **LB + RB**’ye birlikte basarak RFS imlecini aç. Sağ analogla ilerle, **A** ile tıkla veya sürükle, D-pad ile kaydır ve **B** ile gezinmeye dön.
 
 LfsPad açılışta GitHub’daki yeni sürümleri ve ön sürümleri denetler. Bildirimde **Tamam**’ı seçersen paketi indirip doğrular, LFS’yi kapatır ve kurulumdan sonra yeniden açar. Bildirim yarış dışında gösterilir. **Güncelleme → Şimdi güncelleme denetle** ile istediğin zaman kontrol edebilirsin. Açılıştaki denetimi aynı sekmeden kapatabilirsin.
 

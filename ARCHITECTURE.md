@@ -81,7 +81,7 @@ Türkçe Q klavye Unicode giriş üretir. Metin/parola içeriği kopyalanmaz, ç
 ## Dosyalar
 
 `core.hpp`: gezinme, sekme/kaydırıcı seçimi, tekrar, ölü bölge, geçiş engeli, eşleme.
-`runtime.cpp` oyun menülerini okur, seçim çerçevesini, klavyeyi ve ayarlar panelini çizer.
+`runtime.cpp` oyun menülerini okur, seçim çerçevesini ve klavyeyi çizer. `native_options.cpp`, LFS 0.8C38’in Seçenekler penceresine LfsPad sayfasını ekler. Sayfanın düğmelerini LFS çizer ve fare tıklamalarını LFS işler. RFS ve diğer kategoriler kendi açılış yollarını kullanır. Mod, beklenen kod adresleri ve talimatlar eşleştiğinde sayfayı kaydeder.
 
 `controllers.cpp` XInput ve SDL gamepad’lerini okur ve titreşim komutlarını gönderir.
 `platform.cpp`: yükleme zinciri, hash doğrulama, DirectInput/DXGI kancaları.

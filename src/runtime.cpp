@@ -3,6 +3,7 @@
 #include "controller_axes.hpp"
 #include "shortcuts.hpp"
 #include "controller_check.hpp"
+#include "native_options.hpp"
 #include "player_profiles.hpp"
 #include "steering_help.hpp"
 #include <cstdio>
@@ -12,17 +13,6 @@
 #include <xinput.h>
 
 namespace pad {
-#pragma pack(push, 1)
-// Observed in 0.8C38: rect, value/text/extra/style, type/codepage, colour,
-// enabled owner and callback. Only read after the executable hash is verified.
-struct NativeItem {
-  Rect rect;
-  unsigned value, text, extra, style;
-  unsigned char type, pad[3], codepage, pad2[3];
-  unsigned colour, owner, callback;
-};
-#pragma pack(pop)
-static_assert(sizeof(NativeItem) == 52);
 static unsigned char *imageBase = (unsigned char *)GetModuleHandleW(nullptr);
 enum class ListKind { None, Replays, Servers, Mods, Setups, Colours, Skins };
 struct ListItem {
@@ -65,13 +55,11 @@ static double scrollSentAt = 0;
 static bool restoreAfterScroll = false;
 static HWND window = nullptr;
 static WNDPROC previousWndProc = nullptr;
-enum class OverlayClick {
-  None, OptionsTab, UpdateAccept, UpdateLater, KeyboardFirst,
-  SettingsTabFirst = 64, SettingsRowFirst = 69
-};
+enum class OverlayClick { None, UpdateAccept, UpdateLater, KeyboardFirst };
 struct OverlayTarget { RECT rect{}; OverlayClick action{}; };
-static std::array<OverlayTarget, 73> overlayTargets;
+static std::array<OverlayTarget, 62> overlayTargets;
 static OverlayClick overlayClick = OverlayClick::None, overlayPress = OverlayClick::None;
+static bool overlayOwnsLeft = false;
 static RECT overlayShield{};
 static std::atomic<unsigned> diagnosticKeys{0};
 static std::atomic<bool> assignmentFocusLost{false};
@@ -85,23 +73,31 @@ static void cancelFinishHold() {
 static void releaseKeys(bool all = false);
 static void releaseMouse();
 static LRESULT CALLBACK windowProc(HWND h, UINT message, WPARAM w, LPARAM l) {
-  if (message == WM_LBUTTONDOWN || message == WM_LBUTTONUP) {
+  if (message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK || message == WM_LBUTTONUP) {
     const POINT p{short(LOWORD(l)), short(HIWORD(l))};
-    if (message == WM_LBUTTONUP && overlayPress != OverlayClick::None) {
-      for (const auto &target : overlayTargets)
-        if (target.action == overlayPress && PtInRect(&target.rect, p))
-          overlayClick = target.action;
+    if (message == WM_LBUTTONUP && overlayOwnsLeft) {
+      if (overlayPress != OverlayClick::None)
+        for (const auto &target : overlayTargets)
+          if (target.action == overlayPress && PtInRect(&target.rect, p))
+            overlayClick = target.action;
       overlayPress = OverlayClick::None;
+      overlayOwnsLeft = false;
       return 0;
     }
-    if (message == WM_LBUTTONDOWN)
+    if (message != WM_LBUTTONUP) {
+      overlayOwnsLeft = false;
+      overlayPress = OverlayClick::None;
       for (const auto &target : overlayTargets)
         if (target.action != OverlayClick::None && PtInRect(&target.rect, p)) {
           overlayPress = target.action;
+          overlayOwnsLeft = true;
           return 0;
         }
-    if (PtInRect(&overlayShield, p))
-      return 0;
+      if (PtInRect(&overlayShield, p)) {
+        overlayOwnsLeft = true;
+        return 0;
+      }
+    }
   }
   int diagnosticIndex = w >= '1' && w <= '9' ? int(w - '1')
                         : w == 'M'           ? 9
@@ -142,6 +138,7 @@ static LRESULT CALLBACK windowProc(HWND h, UINT message, WPARAM w, LPARAM l) {
   }
   if (message == WM_ACTIVATEAPP && !w) {
     overlayPress = overlayClick = OverlayClick::None;
+    overlayOwnsLeft = false;
     assignmentFocusLost.store(true);
     stopMotors();
     cancelFinishHold();
@@ -180,9 +177,7 @@ static bool playStationCaptions = false;
 static DWORD vibrationPreviewResult = ERROR_CANCELLED;
 static std::vector<Item> items;
 static int mainMenuInitial = -1, raceFinishItem = -1, raceResumeItem = -1;
-static int optionsInitial = -1, optionsLast = -1;
-static Rect optionsExtension{};
-static bool optionsEntryFocus = false;
+static int optionsInitial = -1;
 static bool pedalCalibration = false;
 static bool nativeButtonAssignment = false;
 static unsigned mainMenuSelection = 5;
@@ -571,8 +566,6 @@ static bool gather(uintptr_t modal, bool inGarageMode) {
   garageSkinPrefix = garageSkinName = 0;
   mainMenuInitial = -1;
   optionsInitial = -1;
-  optionsLast = -1;
-  optionsExtension = {};
   modsText = false;
   pedalCalibration = nativeButtonAssignment = false;
   raceFinishItem = -1;
@@ -598,7 +591,6 @@ static bool gather(uintptr_t modal, bool inGarageMode) {
   garageModal = modal && inGarageMode && garageContext &&
                 !garageRoot && !garageViewer && !garageSkins;
   unsigned listOwner = 0;
-  Rect extraOption{};
   for (int i = 0; i < count; ++i) {
     auto &n = native[i];
     auto r = n.rect;
@@ -636,18 +628,12 @@ static bool gather(uintptr_t modal, bool inGarageMode) {
     ListKind kind = ListKind::None;
     const auto callback = n.callback - uintptr_t(imageBase);
     const bool active = n.colour == uintptr_t(imageBase) + 0x43b330;
-    const bool optionsTab = n.owner == uintptr_t(imageBase) + 0x49129c &&
+    const bool optionsTab = nativeOptions::isCategory(n) ||
+                           (n.owner == uintptr_t(imageBase) + 0x49129c &&
                             callback == 0x111760 && n.type == 4 &&
-                            n.value >= 1 && n.value <= 9;
+                            n.value >= 1 && n.value <= 9);
     if (optionsTab && (active || optionsInitial < 0))
       optionsInitial = int(items.size());
-    if (optionsTab && n.value == 9) {
-      optionsLast = int(items.size());
-      const float tabHeight = r.b - r.t;
-      optionsExtension = {r.l, r.b + tabHeight * .29f, r.r, r.b + tabHeight * 1.29f};
-    }
-    if (n.owner == uintptr_t(imageBase) + 0x49129c && n.type == 4 && n.value == 10)
-      extraOption = r;
     // LT+RT is a real pedal input while the native Axes / FF page is active.
     if (active && n.owner == modal && callback == 0x10aba0 && n.type == 0 &&
         n.value == 5)
@@ -705,19 +691,6 @@ static bool gather(uintptr_t modal, bool inGarageMode) {
          optionsTab || (callback == 0x141220 && n.type == 0),
          selectedPreset || active});
   }
-  if (optionsLast >= 0 && validMenuRect(extraOption)) {
-    // RFS uses the next full-width position. Leave the small native arrows
-    // clear and use the remaining width of their row.
-    const float tabHeight = extraOption.b - extraOption.t;
-    optionsExtension.t = extraOption.b + tabHeight * .5f;
-    optionsExtension.b = optionsExtension.t + tabHeight;
-    optionsExtension.l += (optionsExtension.r - optionsExtension.l) * .48f;
-  }
-  if (validMenuRect(optionsExtension) && std::any_of(items.begin(), items.end(), [](const Item &item) {
-        const auto &a = item.rect, &b = optionsExtension;
-        return a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
-      }))
-    optionsExtension = {};
   for (auto &view : garageLists) {
     if (view.entries.empty())
       continue;
@@ -1274,18 +1247,6 @@ static void label(float x, float y, const char *s,
 static RECT hitRect(ImVec2 a, ImVec2 b) {
   return {LONG(a.x), LONG(a.y), LONG(b.x), LONG(b.y)};
 }
-static void drawOptionsEntry(bool focused) {
-  const auto a = pixel(optionsExtension.l, optionsExtension.t),
-             b = pixel(optionsExtension.r, optionsExtension.b);
-  overlayTargets[0] = {hitRect(a, b), OverlayClick::OptionsTab};
-  auto *draw = ImGui::GetForegroundDrawList();
-  draw->AddRectFilled(a, b, IM_COL32(18, 26, 32, 211), 4);
-  draw->AddRectFilled(a, {a.x + 4, b.y}, IM_COL32(255, 181, 79, 255), 2);
-  if (focused)
-    draw->AddRect(a, b, IM_COL32(119, 244, 207, 255), 4, 0, 2);
-  const auto size = ImGui::CalcTextSize("LfsPad");
-  label((a.x + b.x - size.x) * .5f, (a.y + b.y - size.y) * .5f, "LfsPad");
-}
 static void hudLabel(float x, float y, const char *value,
                      ImU32 colour = IM_COL32(245, 245, 245, 255)) {
   label(x + 1, y + 1, value, IM_COL32(0, 0, 0, 240));
@@ -1759,32 +1720,7 @@ static void drawShortcutEditor(float l, float t, float w) {
                 buttonCaption(0), buttonCaption(1));
   label(l + 22, t + 374, hint);
 }
-static void drawSettings(float l, float t, float w, bool clutchAvailable) {
-  panel(l, t, l + w, t + settingsHeight);
-  overlayShield = hitRect({l, t}, {l + w, t + settingsHeight});
-  const auto &tab = settingsTabs[settingsTab];
-  auto *draw = ImGui::GetForegroundDrawList();
-  const float tabWidth = std::min(w * .29f, 172.f);
-  const float content = l + tabWidth + 30.f;
-  draw->AddLine({l + 20, t + 49}, {l + w - 20, t + 49}, IM_COL32(255, 181, 79, 255), 2);
-  label(l + 22, t + 15, text("Seçenekler / LfsPad", "Options / LfsPad"));
-  char tabHint[96];
-  std::snprintf(tabHint, sizeof(tabHint), text("%s / %s · Sekme", "%s / %s · Tabs"),
-                buttonCaption(PadLB), buttonCaption(PadRB));
-  label(l + w - ImGui::CalcTextSize(tabHint).x - 22, t + 16, tabHint);
-  for (int i = 0; i < int(std::size(settingsTabs)); ++i) {
-    const float y = t + 68.f + 45.f * i;
-    const char *name = settingsTabs[i].label.get(cfg.language);
-    overlayTargets[62 + i] = {hitRect({l + 20, y}, {l + tabWidth + 14, y + 37}),
-        OverlayClick(int(OverlayClick::SettingsTabFirst) + i)};
-    draw->AddRectFilled({l + 20, y}, {l + tabWidth + 14, y + 37},
-                        i == settingsTab ? IM_COL32(79, 63, 38, 255)
-                                         : IM_COL32(36, 44, 54, 255), 3);
-    if (i == settingsTab)
-      draw->AddRectFilled({l + 20, y}, {l + 24, y + 37}, IM_COL32(255, 181, 79, 255), 2);
-    label(l + 32, y + 7, name,
-          i == settingsTab ? IM_COL32_WHITE : IM_COL32(166, 185, 202, 255));
-  }
+static void formatSettings(char (&values)[settingCount][100]) {
   const char *actionNames[] = {text("Onay", "Confirm"),
                                     text("Geri", "Back"),
                                     text("Sağ tıklama / sil", "Right click / delete"),
@@ -1794,7 +1730,6 @@ static void drawSettings(float l, float t, float w, bool clutchAvailable) {
                                     text("Menü / metni onayla", "Menu / submit text"),
                                     text("Menü kısayolları", "Menu shortcuts"),
                                     text("İmleç modu", "Cursor mode")};
-  char values[settingCount][100];
   if (cfg.slot == nativePreference)
     std::snprintf(values[controllerSetting], 80, "%s", text("Kontrolcü: Yerel gamepad / USB adaptör", "Controller: Native gamepad / USB adapter"));
   else if (cfg.slot >= 0)
@@ -1835,100 +1770,53 @@ static void drawSettings(float l, float t, float w, bool clutchAvailable) {
   std::snprintf(values[steeringHelpSetting], 100, text("Direksiyon yardımı: %s", "Steering assist: %s"),
                 steeringHelpOptions[unsigned(cfg.steeringHelp)]);
   std::snprintf(values[clutchSetting], 100, "%s", clutchLabel.get(cfg.language));
-  constexpr int visibleRows = 6;
-  const int first = std::clamp(settingRow - visibleRows / 2, tab.first,
-                               std::max(tab.first, tab.end - visibleRows));
-  draw->PushClipRect({content, t + 62}, {l + w - 18, t + 309}, true);
-  for (int row = 0; row < visibleRows && first + row < tab.end; ++row) {
-    const int i = first + row;
-    const float y = t + 68 + row * 39.f;
-    const ImVec2 a{content, y}, b{l + w - 20, y + 34};
-    overlayTargets[67 + row] = {hitRect(a, b),
-        OverlayClick(int(OverlayClick::SettingsRowFirst) + i)};
-    draw->AddRectFilled(a, b, i == settingRow ? IM_COL32(37, 81, 76, 255)
-                                              : IM_COL32(37, 45, 54, 255), 3);
-    if (i == settingRow)
-      draw->AddRect(a, b, bindingCapture.active() ? IM_COL32(255, 181, 79, 255)
-                                                 : IM_COL32(119, 244, 207, 255), 3);
-    const auto colour = i == clutchSetting && !clutchAvailable ?
-        IM_COL32(166, 185, 202, 255) : IM_COL32_WHITE;
-    const auto *divider = std::strstr(values[i], ": ");
-    const auto *value = divider ? divider + 2 : nullptr;
-    const float valueWidth = value ? ImGui::CalcTextSize(value).x : 0.f;
-    const float lWidth = ImGui::CalcTextSize(values[i], divider).x;
-    if (value && lWidth + valueWidth + 60 < b.x - a.x) {
-      draw->AddText({a.x + 12, y + 6}, colour, values[i], divider);
-      label(b.x - 12 - valueWidth, y + 6, value, IM_COL32(183, 223, 215, 255));
-    } else
-      label(a.x + 12, y + 6, values[i], colour);
+}
+
+static bool opensSetting(int row) {
+  return row == shortcutSetting || row == controllerCheckSetting ||
+         row == manualUpdateSetting || row == clutchSetting;
+}
+
+void paintNativeSettings() {
+  using namespace nativeOptions;
+  char values[settingCount][100];
+  formatSettings(values);
+  const auto &tab = settingsTabs[settingsTab];
+  for (int i = 0; i < int(std::size(settingsTabs)); ++i) {
+    const float x = -.64f + i * .283f;
+    button({x, -.75f, x + .268f, -.65f}, settingsTabs[i].label.get(cfg.language),
+           SelectTab + i, settingsTab == i, true);
   }
-  draw->PopClipRect();
-  if (tab.end - tab.first > visibleRows) {
-    char position[32];
-    std::snprintf(position, sizeof(position), "%d / %d", settingRow - tab.first + 1, tab.end - tab.first);
-    label(l + w - ImGui::CalcTextSize(position).x - 22, t + 304, position);
+  // One native settings page fits all rows in each group, including bindings.
+  for (int row = tab.first; row < tab.end; ++row) {
+    const float y = -.57f + (row - tab.first) * .091f;
+    button({-.64f, y, .48f, y + .078f}, values[row], SelectRow + row, row == settingRow);
+    if (row >= firstBindingSetting && row < quickMenuSetting)
+      button({.50f, y, .76f, y + .078f}, text("Ata", "Assign"), Assign + row);
+    else if (!opensSetting(row)) {
+      button({.50f, y, .62f, y + .078f}, "<", Decrease + row);
+      button({.64f, y, .76f, y + .078f}, ">", Increase + row);
+    }
   }
-  if (bindingCapture.active()) {
-    label(l + 22, t + 342,
-          bindingCapture.phase == BindingCapture::Phase::Release
-              ? text("Önce basılı tuşları bırak.", "Release the buttons first.")
-              : text("Kullanmak istediğin tuşa bas.", "Press the button you want to assign."),
-          IM_COL32(255, 210, 90, 255));
-    label(l + 22, t + 374, playStationCaptions
-        ? text("L2 + R2 ile iptal et", "Press L2 + R2 to cancel")
-        : text("LT + RT ile iptal et", "Press LT + RT to cancel"));
-  } else if (settingRow == shortcutSetting || settingRow == controllerCheckSetting ||
-             settingRow == clutchSetting || settingRow == manualUpdateSetting) {
-    char hint[128];
-    std::snprintf(hint, sizeof(hint), text("D-pad: seç   %s: aç   %s: iptal", "D-pad: select   %s: open   %s: cancel"),
-                  buttonCaption(PadA), buttonCaption(PadB));
-    label(l + 22, t + 342, hint);
-    if (settingRow == clutchSetting)
-      label(l + 22, t + 374, clutchAvailable
-          ? text("LFS'deki debriyaj ayarını açar.", "Opens LFS's clutch setting.")
-          : text("Uygun araçla piste çıkınca durdurma menüsünden aç.",
-                 "Open from the pause menu while in a compatible car."));
-    if (settingRow == manualUpdateSetting)
-      label(l + 22, t + 374, updateView == UpdateView::Offer
-          ? text("Güncelleme hazır. Kurmak için ana menüye dön.", "Update available. Return to the main menu to install.")
-          : text("GitHub ön sürümleri de denetlenir.", "Includes GitHub pre-releases."));
-  } else {
-    char hint[128];
-    std::snprintf(hint, sizeof(hint), text("D-pad: seç / değiştir   %s: kaydet   %s: iptal", "D-pad: select / change   %s: save   %s: cancel"),
-                  buttonCaption(0), buttonCaption(1));
-    label(l + 22, t + 342, hint);
-    if (isBindingSetting())
-      std::snprintf(hint, sizeof(hint), text("%s: tuş ata   Tuş doluysa iki görev yer değiştirir.", "%s: assign button   Buttons already in use are swapped."),
-                    buttonCaption(2));
-    else if (settingRow == rumbleSetting)
-      std::snprintf(hint, sizeof(hint), text("%s: titreşimi dene    %%0: kapalı", "%s: test vibration   0%%: off"), buttonCaption(2));
-    else if (settingRow == steeringSetting)
-      std::snprintf(hint, sizeof(hint), "%s", text("Küçük analog hareketleri yumuşatır.",
-                                                  "Softens small left-stick movements."));
-    else if (settingRow == steeringHelpSetting)
-      std::snprintf(hint, sizeof(hint), "%s", text("Virajda fazla dönüşü azaltır, kaymada destek olur.",
-                                                  "Reduces excess steering and helps correct slides."));
-    else if (settingRow == profileSetting)
-      std::snprintf(hint, sizeof(hint), text("%s: yeniden adlandır", "%s: rename"), buttonCaption(PadX));
-    else if (settingRow == autoUpdateSetting)
-      std::snprintf(hint, sizeof(hint), "%s", text("Yeni sürüm bulunduğunda yüklemeden önce sorar.",
-                                                  "Asks before downloading and installing."));
-    else
-      hint[0] = 0;
-    label(l + 22, t + 374, hint);
-  }
-  if (missingSlot)
-    label(l + 22, t + 320, text("Seçtiğin kontrolcüyü bağla.", "Connect the selected controller."),
-          IM_COL32(255, 210, 90, 255));
+  const char *status = nullptr;
+  if (bindingCapture.active())
+    status = bindingCapture.phase == BindingCapture::Phase::Release
+        ? text("Basılı tuşları bırak.", "Release the buttons.")
+        : text("Atamak istediğin tuşa bas.", "Press the button to assign.");
+  else if (missingSlot)
+    status = text("Seçtiğin kontrolcüyü bağla.", "Connect the selected controller.");
   else if (settingsSaveFailed)
-    label(l + 22, t + 320, text("Ayarlar kaydedilemedi. A ile tekrar dene.", "Couldn't save settings. Press A to try again."),
-          IM_COL32(255, 210, 90, 255));
-  else if (settingRow == rumbleSetting && vibrationPreviewResult != ERROR_CANCELLED) {
-    const char *message = vibrationPreviewResult == ERROR_SUCCESS
-        ? text("Sürücü titreşim komutunu kabul etti.", "The driver accepted the vibration command.")
-        : text("Bu bağlantıda titreşim komutu çalışmadı.", "Vibration failed on this connection.");
-    label(l + 22, t + 320, message);
-  }
+    status = text("Ayarlar kaydedilemedi.", "Settings could not be saved.");
+  else if (settingRow == manualUpdateSetting && updateView == UpdateView::Offer)
+    status = text("Kurmak için ana menüye dön.", "Return to the main menu to install.");
+  if (status)
+    button({-.64f, .48f, .76f, .55f}, status);
+  button({-.64f, .61f, -.24f, .71f}, text("Kaydet", "Save"), Save, true, true);
+  button({-.22f, .61f, .18f, .71f}, text("Vazgeç", "Cancel"), Cancel, false, true);
+  if (settingRow == profileSetting)
+    button({.20f, .61f, .76f, .71f}, text("Profili yeniden adlandır", "Rename profile"), Assign + profileSetting);
+  else if (settingRow == rumbleSetting)
+    button({.20f, .61f, .76f, .71f}, text("Titreşimi dene", "Test vibration"), Assign + rumbleSetting);
 }
 static constexpr ImU32 meterActive = IM_COL32(78, 223, 186, 255),
                        meterMuted = IM_COL32(166, 185, 202, 255),
@@ -2313,6 +2201,8 @@ static bool initialize(IDXGISwapChain *swap) {
   }
   activeSwap = swap;
   loadConfig();
+  if (!nativeOptions::install(imageBase))
+    log("Native Options registration skipped: unexpected executable instructions");
   if (cfg.autoUpdate)
     startUpdate(false, true);
   log("LfsPad " LFSPAD_VERSION " active: PID=%lu HWND=%p Direct3D11, native table "
@@ -2372,11 +2262,23 @@ void frame(IDXGISwapChain *swap) {
                                 nativeText || raceMenu || mainMenuInitial >= 0 || optionsInitial >= 0 ||
                                 garageRoot || garageViewer || garageSkins);
   const bool shortcutEditorWasOpen = shortcutEditor;
-  if (!menu && settings) {
-    loadConfig();
-    settings = false;
+  const bool nativeSettings = nativeOptions::active();
+  if (settings != nativeSettings) {
+    if (!nativeSettings)
+      loadConfig();
+    else {
+      settingsTab = 0;
+      settingRow = settingsTabs[0].first;
+      settingsSaveFailed = missingSlot = false;
+    }
+    settings = nativeSettings;
+    shortcutEditor = profileNaming = cursorMode = false;
+    bindingCapture.cancel();
+    releaseMouse();
+    blockMenuInput();
   }
   bool foreground = GetForegroundWindow() == window;
+  const unsigned nativeAction = nativeOptions::takeAction();
   const auto clicked = foreground ? overlayClick : OverlayClick::None;
   overlayClick = OverlayClick::None;
   overlayTargets = {};
@@ -2428,6 +2330,8 @@ void frame(IDXGISwapChain *swap) {
       }
     }
   }
+  if (!connected)
+    state = {};
   if (time >= checkPads || connected != wasConnected || oldSlot != activeSlot) {
     checkPads = time + 1;
     xinputCount = 0;
@@ -2514,10 +2418,6 @@ void frame(IDXGISwapChain *swap) {
       foreground != wasForeground || connected != wasConnected ||
       oldSlot != activeSlot;
   const bool reset = screenChanged || contextChanged;
-  const bool optionsEntryAvailable = menu && foreground && !nativeText && !rfsCursor &&
-      optionsInitial >= 0 && validMenuRect(optionsExtension);
-  if (!optionsEntryAvailable || reset)
-    optionsEntryFocus = false;
   auto buttons = state.Gamepad.wButtons;
   auto pressed = gate.update(buttons, reset || !foreground || !connected);
   if (reset)
@@ -2585,9 +2485,6 @@ void frame(IDXGISwapChain *swap) {
       (pressed & (settings ? XINPUT_GAMEPAD_START : binding(Menu))) ||
       (diagnostic & (1 << 9));
   const auto &pad = state.Gamepad;
-  const bool fromOptions = !settings && !keyboard && !cursorMode && !nativeButtonAssignment &&
-      optionsEntryAvailable && (clicked == OverlayClick::OptionsTab ||
-           (optionsEntryFocus && confirm && !back && !menuPressed));
   static ControllerCheck controllerCheck;
   static bool controllerCheckOpen = false, controllerCheckDrain = false;
   static ControllerId checkedController = -1;
@@ -2625,7 +2522,7 @@ void frame(IDXGISwapChain *swap) {
                           !pedalCalibration && !garageViewer && !lostAssignmentFocus && activeSlot == oldSlot;
   const bool rfsChordPressed = ((held & rfsChord) == rfsChord && (pressed & rfsChord)) ||
                                (diagnostic & (1u << 19));
-  static bool rfsDrain = false, rfsStickReady = false;
+  static bool rfsStickReady = false;
   const bool wasRfsCursor = rfsCursor;
   if (!rfsAllowed || (rfsCursor && (back || menuPressed)))
     rfsCursor = false;
@@ -2637,20 +2534,22 @@ void frame(IDXGISwapChain *swap) {
     blockMenuInput();
     cursorMode = false;
     rfsStickReady = false;
-    rfsDrain = true;
     log("RFS menu cursor: %s", rfsCursor ? "open" : "closed");
   }
   const float rfsX = analog(pad.sThumbRX, cfg.deadzone);
   const float rfsY = analog(pad.sThumbRY, cfg.deadzone);
-  if (!connected || (foreground && !rfsCursor && !buttons &&
-                     pad.bLeftTrigger <= XINPUT_GAMEPAD_TRIGGER_THRESHOLD &&
-                     pad.bRightTrigger <= XINPUT_GAMEPAD_TRIGGER_THRESHOLD && !lx && !ly && !rfsX && !rfsY))
-    rfsDrain = false;
   const bool diagnosticTriggers = time < diagnosticTriggersUntil;
   const bool toggleSettings = settingsChord.update(
       diagnosticTriggers ? 255 : pad.bLeftTrigger,
       diagnosticTriggers ? 255 : pad.bRightTrigger, time,
       settingsChordAllowed && !rfsCursor && !rfsChanged);
+  static double openSettingsUntil = 0;
+  if (!foreground || lostAssignmentFocus || nativeText || time >= openSettingsUntil)
+    openSettingsUntil = 0;
+  if (openSettingsUntil && nativeOptions::canOpen()) {
+    nativeOptions::open();
+    openSettingsUntil = 0;
+  }
   const auto shortcutScreen = menu && !nativeText ? findShortcutScreen(modal, raceMenu)
                                              : ShortcutScreen::None;
   const auto menuShortcuts = findMenuShortcuts(shortcutScreen, modal);
@@ -2847,10 +2746,6 @@ void frame(IDXGISwapChain *swap) {
   const auto quickFilter = (quickAllowed ? quickButtonBits[cfg.quickButton] : 0u) |
                            (quickDrain ? rightStickMask : 0u) |
                            ((settingsChord.draining || controllerCheckDrain) ? triggerAxisMask : 0u);
-  captureQuickInput.store(connected && foreground
-      ? nativeMenuFilter | (singlePad ? quickFilter | viewerMask |
-          (shortcutInput.stickHeld ? leftStickMask : 0u) : 0u)
-      : 0u);
   static double diagnosticOrbitUntil = 0;
   static double rumblePreviewUntil = 0;
   static ControllerId rumblePreviewSlot = -1;
@@ -2936,18 +2831,26 @@ void frame(IDXGISwapChain *swap) {
         wheel(nav[0] ? WHEEL_DELTA : -WHEEL_DELTA);
     }
   } else if (foreground && !recoveryConsumesConfirm) {
-    if (toggleSettings || fromOptions) {
+    if (toggleSettings) {
       if (settings)
-        loadConfig();
-      settings = !settings;
-      if (fromOptions) {
-        settingsTab = 0;
-        settingRow = settingsTabs[0].first;
-        optionsEntryFocus = true;
+        nativeOptions::leave();
+      else if (nativeOptions::canOpen())
+        nativeOptions::open();
+      else {
+        int options = -1;
+        if (shortcutScreen == ShortcutScreen::Main)
+          options = findShortcutItem(shortcutMenu(ShortcutScreen::Main).targets[2], modal);
+        else if (shortcutScreen == ShortcutScreen::Race)
+          options = findShortcutItem(shortcutMenu(ShortcutScreen::Race).targets[3], modal);
+        if (options >= 0) {
+          activate(items[options], width, height);
+          openSettingsUntil = time + 1.5;
+        } else if (simCommand("/shift O"))
+          openSettingsUntil = time + 1.5;
       }
+      cursorMode = false;
+      releaseMouse();
       blockMenuInput();
-      if (cfg.diagnostics)
-        log("Settings trigger chord: %s", settings ? "open" : "closed");
     } else if (menuPressed) {
       if (profileNaming) {
         finishProfileName(true);
@@ -2957,8 +2860,7 @@ void frame(IDXGISwapChain *swap) {
       } else if (keyboard) {
         closeGameKeyboard(true);
       } else if (settings) {
-        loadConfig();
-        settings = false;
+        nativeOptions::leave();
         blockMenuInput();
         confirm = back = false;
         std::fill(std::begin(nav), std::end(nav), false);
@@ -2980,7 +2882,7 @@ void frame(IDXGISwapChain *swap) {
     }
     wasNativeText = nativeText;
     keyboardOwner = modal;
-    if (menu && !fromOptions && !toggleSettings && !menuPressed &&
+    if (menu && !toggleSettings && !menuPressed &&
         ((pressed & binding(Keyboard)) || diagnosticKeyboard) &&
         !settings) {
       if (keyboard && !diagnosticKeyboard)
@@ -2997,10 +2899,10 @@ void frame(IDXGISwapChain *swap) {
     if (!nativeText && !manualKeyboard)
       keyboard = false;
     if (!menu) {
-      settings = keyboard = manualKeyboard = profileNaming = false;
+      keyboard = manualKeyboard = profileNaming = false;
       cursorMode = false;
     }
-    if (menu && !fromOptions && !toggleSettings && !menuPressed) {
+    if (menu && !toggleSettings && !menuPressed) {
       if (keyboard) {
         moveKeyboard(gameKeys, nav, diagnosticNext);
         if (selectClickedKey(gameKeys, clicked) || confirm)
@@ -3054,19 +2956,27 @@ void frame(IDXGISwapChain *swap) {
             adjustShortcut(nav[2] ? -1 : 1);
         }
       } else if (settings) {
-        const int clickedTab = int(clicked) - int(OverlayClick::SettingsTabFirst);
-        const int clickedRow = int(clicked) - int(OverlayClick::SettingsRowFirst);
+        using namespace nativeOptions;
+        const int clickedTab = int(nativeAction) - SelectTab;
         const auto &currentTab = settingsTabs[settingsTab];
+        const auto within = [&](unsigned group) {
+          return nativeAction >= group + currentTab.first && nativeAction < group + currentTab.end;
+        };
+        const bool mouseSave = nativeAction == Save;
+        const bool assign = within(Assign);
         const bool previousTab = (pressed & XINPUT_GAMEPAD_LEFT_SHOULDER) || (diagnostic & (1u << 10));
         const bool nextTab = (pressed & XINPUT_GAMEPAD_RIGHT_SHOULDER) || (diagnostic & (1u << 11));
         if (clickedTab >= 0 && clickedTab < int(std::size(settingsTabs))) {
           settingsTab = clickedTab;
           settingRow = settingsTabs[settingsTab].first;
           blockMenuInput();
-        } else if (clickedRow >= currentTab.first && clickedRow < currentTab.end) {
-          settingRow = clickedRow;
-          confirm = settingRow == manualUpdateSetting || settingRow == controllerCheckSetting ||
-                    settingRow == shortcutSetting || settingRow == clutchSetting;
+        } else if (within(SelectRow) || within(Decrease) || within(Increase) || assign) {
+          const unsigned group = within(SelectRow) ? SelectRow : within(Decrease) ? Decrease :
+                                 within(Increase) ? Increase : Assign;
+          settingRow = int(nativeAction - group);
+          if (group == Decrease || group == Increase)
+            adjustSetting(group == Decrease ? -1 : 1);
+          confirm = group == SelectRow && opensSetting(settingRow);
           blockMenuInput();
         } else if (previousTab != nextTab) {
           constexpr int count = int(std::size(settingsTabs));
@@ -3083,11 +2993,10 @@ void frame(IDXGISwapChain *swap) {
           if (nav[2] != nav[3])
             adjustSetting(nav[2] ? -1 : 1);
         }
-        if (back) {
-          loadConfig();
-          settings = false;
+        if (back || nativeAction == Cancel) {
+          nativeOptions::leave();
           blockMenuInput();
-        } else if (settingRow == profileSetting && ((pressed & XINPUT_GAMEPAD_X) || diagnosticAssign)) {
+        } else if (settingRow == profileSetting && ((pressed & XINPUT_GAMEPAD_X) || diagnosticAssign || assign)) {
           profileNameDraft = profiles.current().name;
           profileKeys = {};
           profileKeys.row = 1;
@@ -3109,10 +3018,10 @@ void frame(IDXGISwapChain *swap) {
           shortcutEditor = true;
           blockMenuInput();
         } else if (isBindingSetting() &&
-                   ((pressed & XINPUT_GAMEPAD_X) || diagnosticAssign)) {
+                   ((pressed & XINPUT_GAMEPAD_X) || diagnosticAssign || assign)) {
           bindingCapture.begin();
         } else if (settingRow == rumbleSetting &&
-                   ((pressed & XINPUT_GAMEPAD_X) || diagnosticAssign)) {
+                   ((pressed & XINPUT_GAMEPAD_X) || diagnosticAssign || assign)) {
           const auto slot = cfg.slot >= 0 ? controllerForPreference(cfg.slot, activeSlot) : activeSlot;
           XINPUT_STATE candidate{};
           missingSlot = readController(slot, candidate) != ERROR_SUCCESS;
@@ -3121,7 +3030,7 @@ void frame(IDXGISwapChain *swap) {
             rumblePreviewSlot = slot;
             rumblePreviewUntil = time + .42;
           }
-        } else if (confirm && (settingRow != clutchSetting || clutchAvailable)) {
+        } else if (mouseSave || (confirm && (settingRow != clutchSetting || clutchAvailable))) {
           XINPUT_STATE candidate{};
           missingSlot = cfg.slot >= 0 &&
                         readController(controllerForPreference(cfg.slot, activeSlot),
@@ -3129,33 +3038,20 @@ void frame(IDXGISwapChain *swap) {
           if (!missingSlot) {
             settingsSaveFailed = !saveConfig();
             if (!settingsSaveFailed) {
-              if (settingRow == clutchSetting) {
+              if (settingRow == clutchSetting && !mouseSave) {
                 favoriteSource = shortcutScreen;
                 favoriteOwner = modal;
                 favoriteErrorUntil = 0;
                 favoriteRoute.begin(Favorite::Clutch, clutchPage, now);
               }
-              if (inputSlot != cfg.slot || settingRow != clutchSetting)
+              if (inputSlot != cfg.slot)
                 activeSlot = -1;
               inputSlot = cfg.slot;
-              settings = false;
+              nativeOptions::leave();
               blockMenuInput();
             }
           }
         }
-      } else if (optionsEntryAvailable && !cursorMode &&
-                 (optionsEntryFocus || (nav[1] && selected == optionsLast))) {
-        if (back) {
-          optionsEntryFocus = false;
-          simKey("esc");
-        } else if (optionsEntryFocus && (nav[0] || nav[3] ||
-                   (pressed & (binding(PreviousTab) | binding(NextTab) | binding(CursorMode))))) {
-          optionsEntryFocus = false;
-          if (nav[3])
-            selected = optionsInitial;
-        } else
-          optionsEntryFocus = true;
-        blockMenuInput();
       } else if (favoriteRoute.favorite != Favorite::None) {
         if (back) {
           releaseMouse();
@@ -3428,21 +3324,27 @@ void frame(IDXGISwapChain *swap) {
   }
   if (!finishHint)
     cancelFinishHold();
-  // Continue suppressing a held menu button until release after returning to
-  // driving.
-  auto consumed = dpad;
-  for (int b : cfg.bindings)
-    consumed |= physical[b];
-  consumed |= shortcutInput.buttonsHeld;
-  static bool draining = false;
-  if ((wasMenu || wasReplay || wasRecoveryCapture) &&
-      !menu && !playingReplay && !recoveryCapture)
-    draining = true;
-  if (!(buttons & consumed))
-    draining = false;
-  captureButtons.store(foreground && connected && !drivingAssignmentArmed &&
-                       (menu || playingReplay || recoveryCapture || draining || rfsDrain));
-  captureRaceAxes.store(foreground && connected && (raceMenu || recoveryCapture || rfsCursor || rfsDrain));
+  const bool capturePadButtons = foreground && connected && !drivingAssignmentArmed &&
+      (menu || playingReplay || recoveryCapture || rfsCursor);
+  const bool capturePadAxes = foreground && connected &&
+      (raceMenu || recoveryCapture || rfsCursor || (settings && (sim.flags & 1)));
+  const bool samePad = connected && foreground && !lostAssignmentFocus &&
+                       activeSlot == oldSlot && wasForeground && wasConnected;
+  unsigned heldButtons = (buttons & dpad) ? drivingPovMask : 0;
+  for (unsigned i = 0; i < std::size(meterButtonOrder); ++i)
+    if (buttons & physical[meterButtonOrder[i]])
+      heldButtons |= 1u << i;
+  const unsigned heldAxes = ((lx || ly) ? leftStickMask : 0u) |
+      ((rfsX || rfsY) ? rightStickMask : 0u) | (checkTriggersHeld ? triggerAxisMask : 0u);
+  static InputDrain buttonsDrain, axesDrain;
+  const unsigned draining = buttonsDrain.update(samePad && !drivingAssignmentArmed,
+      capturePadButtons, heldButtons) | axesDrain.update(samePad, capturePadAxes, heldAxes);
+  captureButtons.store(capturePadButtons);
+  captureRaceAxes.store(capturePadAxes);
+  captureQuickInput.store(connected && foreground
+      ? nativeMenuFilter | (singlePad ? draining | quickFilter | viewerMask |
+          (shortcutInput.stickHeld ? leftStickMask : 0u) : 0u)
+      : 0u);
   const bool settingsVisible = foreground && menu && settings;
   static DrivingRumble rumble;
   static bool hadTelemetry = false;
@@ -3453,7 +3355,7 @@ void frame(IDXGISwapChain *swap) {
       !(sim.flags & (2 | 4 | 8 | 16 | 256 | 32768)) &&
       sim.localPlayer && sim.localPlayer == sim.viewedPlayer;
   const bool canRumbleWhileDriving = localDriving && cfg.rumbleStrength;
-  const bool steeringAllowed = localDriving && singlePad && !rfsCursor && !rfsDrain;
+  const bool steeringAllowed = localDriving && singlePad && !(draining & leftStickMask);
   const bool assistDriving = steeringAllowed && cfg.steeringHelp != SteeringHelp::Off;
   static bool steeringArmed = false;
   if (!steeringAllowed || contextChanged)
@@ -3579,8 +3481,6 @@ void frame(IDXGISwapChain *swap) {
   wasCollectingInput = collectInput;
   monitorInput.store(collectInput || learnSteering);
   if (foreground && menu) {
-    if (optionsEntryAvailable && !rfsCursor && !updateModal)
-      drawOptionsEntry(optionsEntryFocus);
     if (updateModal)
       drawUpdate(width, height);
     else if (settings && controllerCheckOpen)
@@ -3589,8 +3489,12 @@ void frame(IDXGISwapChain *swap) {
       drawShortcutEditor(settingsX, settingsY, settingsW);
     else if (settings && profileNaming)
       drawKeyboard(width, height);
-    else if (settings)
-      drawSettings(settingsX, settingsY, settingsW, clutchAvailable);
+    else if (settings) {
+      if (cfg.controllerIcons)
+        drawCornerHints(width, height, false, {
+            {PadA, text("Seç / kaydet", "Select / save")}, {PadB, text("Vazgeç", "Cancel")},
+            {PadLB, text("Önceki sekme", "Previous tab")}, {PadRB, text("Sonraki sekme", "Next tab")}});
+    }
     else if (keyboard)
       drawKeyboard(width, height);
     else if (rfsCursor) {
@@ -3604,7 +3508,7 @@ void frame(IDXGISwapChain *swap) {
       }
     }
     else {
-      if (!assigningDrivingButton && !cursorMode && !optionsEntryFocus && selected >= 0 &&
+      if (!assigningDrivingButton && !cursorMode && selected >= 0 &&
           pendingFavorite == Favorite::None && favoriteRoute.favorite == Favorite::None) {
         auto r = items[selected].rect;
         ImGui::GetForegroundDrawList()->AddRect(

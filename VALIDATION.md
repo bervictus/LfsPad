@@ -2,6 +2,11 @@
 
 0.3.0 ön sürümü aşağıda 0.3.0, 0.3.1 ve 0.3.2 olarak kaydedilen yerel denemelerin son değişikliklerini bir araya getirir. 0.3.1 ve 0.3.2 yerel test etiketleridir.
 
+## LfsPad 0.4.1
+
+- RFS yüklü LFS 0.8C38’de Seçenekler’den LfsPad sayfası açıldı ve Güncelleme ayarı yerel ok düğmesiyle değiştirildi. RFS sayfası açıldığında kaydedilmemiş değişiklik geri alındı.
+- Çekirdek testleri menüden ayrılırken basılı tuşun yeni direksiyon ve pedal girdilerini engellememesini ve odak kaybında eski giriş engelinin kalkmasını kapsar.
+
 ## LfsPad 0.4.0
 
 - LFS 0.8C38’de Modlar ekranının Ara ve Yazar alanları ekran klavyesini açtı. Ara alanına ekran klavyesinden girilen harf listeyi süzdü. Tamam tuşu filtreyi koruyarak oyunun metin alanını kapattı.

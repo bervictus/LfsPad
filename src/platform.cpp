@@ -383,6 +383,7 @@ static GamepadFormat describeFormat(const DIDATAFORMAT &format, const GamepadFor
       continue;
     if (object.dwType & DIDFT_POV) {
       control.kind = ControlKind::Pov;
+      control.quickMask = drivingPovMask;
       control.neutral = 0xffffffff;
     } else if (object.dwType & DIDFT_AXIS) {
       auto aspect = object.dwFlags & DIDOI_ASPECTMASK;

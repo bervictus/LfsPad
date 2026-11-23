@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(LfsPad VERSION 0.4.0 LANGUAGES CXX)
+project(LfsPad VERSION 0.4.1 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(CTest)
@@ -22,7 +22,7 @@ if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 4)
   set(HAVE_DINPUT_H TRUE)
   add_subdirectory("${SDL_DIR}" sdl EXCLUDE_FROM_ALL)
   set(IMGUI_DIR "${CMAKE_SOURCE_DIR}/.tools/imgui-1.91.9b" CACHE PATH "Dear ImGui source")
-  add_library(LfsPad SHARED src/platform.cpp src/runtime.cpp src/controllers.cpp src/insim.cpp src/rumble.cpp src/dxgi.def
+  add_library(LfsPad SHARED src/platform.cpp src/runtime.cpp src/native_options.cpp src/controllers.cpp src/insim.cpp src/rumble.cpp src/dxgi.def
     ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp ${IMGUI_DIR}/imgui_widgets.cpp
     ${IMGUI_DIR}/imgui_tables.cpp ${IMGUI_DIR}/backends/imgui_impl_dx11.cpp)
   target_include_directories(LfsPad PRIVATE src ${IMGUI_DIR} ${IMGUI_DIR}/backends)

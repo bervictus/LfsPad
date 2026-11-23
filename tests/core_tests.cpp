@@ -32,6 +32,15 @@ int main() {
   check(!escapeFromBack(false, false, true) && !escapeFromBack(true, false, true) &&
             escapeFromBack(true, true, true) && escapeFromBack(true, false, false),
         "Back closes menus without opening the race menu from the track");
+  InputDrain releaseDrain;
+  check(releaseDrain.update(true, true, triggerAxisMask | 1u) == (triggerAxisMask | 1u),
+        "menu records controls held at handoff");
+  check(releaseDrain.update(true, false, leftStickMask | 1u) == 1u,
+        "held menu button does not block new steering after releasing pedals");
+  check(!releaseDrain.update(true, false, leftStickMask | 2u),
+        "a newly pressed driving button does not extend a menu drain");
+  releaseDrain.update(true, true, rightStickMask);
+  check(!releaseDrain.update(false, false, rightStickMask), "disconnect or blur drops old capture");
   PlayerProfiles profiles;
   PlayerInputSettings input;
   check(input.steeringHelp == SteeringHelp::Balanced, "new and legacy profiles default to balanced");

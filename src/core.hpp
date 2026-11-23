@@ -75,6 +75,16 @@ inline float colourSliderPosition(unsigned component, unsigned maximum,
 inline constexpr unsigned rightStickMask = 1u << 16;
 inline constexpr unsigned triggerAxisMask = 1u << 17;
 inline constexpr unsigned leftStickMask = 1u << 18;
+inline constexpr unsigned drivingPovMask = 1u << 19;
+// On return to driving, suppress only controls that were already held.
+// Fresh inputs are never added to a drain after the menu has closed.
+struct InputDrain {
+  unsigned held = 0;
+  unsigned update(bool valid, bool capturing, unsigned current) {
+    held = !valid ? 0 : capturing ? current : held & current;
+    return held;
+  }
+};
 struct GarageViewInput {
   bool armed = false;
   unsigned heldAxes = 0;
