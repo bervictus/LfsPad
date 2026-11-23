@@ -2,6 +2,13 @@
 
 0.3.0 ön sürümü aşağıda 0.3.0, 0.3.1 ve 0.3.2 olarak kaydedilen yerel denemelerin son değişikliklerini bir araya getirir. 0.3.1 ve 0.3.2 yerel test etiketleridir.
 
+## LfsPad 0.4.0
+
+- LFS 0.8C38’de Modlar ekranının Ara ve Yazar alanları ekran klavyesini açtı. Ara alanına ekran klavyesinden girilen harf listeyi süzdü. Tamam tuşu filtreyi koruyarak oyunun metin alanını kapattı.
+- RFS yüklüyken Seçenekler’deki LfsPad düğmesi yeni ayarları açtı. Güncelleme sekmesinden GitHub denetimi çalıştı ve güncel durum bildirimi gösterildi. Oyun InSim kapanma isteğini test kopyasında işledi.
+- CTest’in çekirdek ve kontrolcü testlerine ek olarak kurulum testleri ön sürüm seçimini, geçersiz paket adresini, SHA-256 uyuşmazlığını, manuel onayı ve RFS dosyalarının korunmasını kapsıyor.
+- Back ve Start ayrımı giriş yönlendirme testlerinde kapsanıyor. Fiziksel cihaz ve Steam Input eşlemeleri ayrı ayrı sınanmadı.
+
 ## LfsPad 0.3.2 — Karşı direksiyon düzeltmesi
 
 - Kullanıcının South City’de F710 ile yaptığı sürüşten alınan 5.502 kontrolcü ve OutSim örneği iki derlemenin direksiyon hesaplamasından geçirildi. Kaymayı toparlayan, neredeyse sonuna kadar çevrilmiş 730 analog girdisinde ortalama çıkış %84,5’ten %97,9’a çıktı. Analog merkezine yakın 290 kayma örneğinde doğru yöndeki ortalama çıkış %5,2’den %25,3’e çıktı. Bu ölçümler aynı kayıt üzerinde hesaplandı. Düzeltmeyle yeni bir fiziksel tur ölçülmedi.

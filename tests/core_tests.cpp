@@ -23,6 +23,15 @@ int main() {
   check(keyboardRows(Language::English, false, false)[1] == L"qwertyuiop" &&
             keyboardRows(Language::Turkish, true, false)[2] == L"ASDFGHJKLŞİ",
         "English and Turkish keyboard layouts");
+  check(keyboardKey(1, 0, 10).x == 1 && keyboardKey(1, 0, 12).x == 0,
+        "short keyboard rows are centered");
+  check(nearestKeyboardKey(4, 6, 5.f) == 0 && nearestKeyboardKey(4, 6, 9.5f) == 4 &&
+            nearestKeyboardKey(4, 6, 11.9f) == 5, "keyboard footer follows displayed key geometry");
+  check(nativeTextEntry(true, false, 0) && nativeTextEntry(false, true, 0x8000) &&
+            !nativeTextEntry(false, false, 0x8000), "native and InSim text entry");
+  check(!escapeFromBack(false, false, true) && !escapeFromBack(true, false, true) &&
+            escapeFromBack(true, true, true) && escapeFromBack(true, false, false),
+        "Back closes menus without opening the race menu from the track");
   PlayerProfiles profiles;
   PlayerInputSettings input;
   check(input.steeringHelp == SteeringHelp::Balanced, "new and legacy profiles default to balanced");

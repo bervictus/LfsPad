@@ -1,5 +1,6 @@
 param([string]$GameDirectory='C:\LFS', [string]$DllPath='', [switch]$Diagnostics, [switch]$Update,
-    [string]$ExpectedCurrentHash='', [string]$ExpectedNewHash='')
+    [string]$ExpectedCurrentHash='', [string]$ExpectedNewHash='', [switch]$ManualApproval,
+    [string]$WorkerSource=$PSScriptRoot)
 
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot\install-common.ps1"
@@ -32,8 +33,8 @@ try {
         $old=$installation.Record
         $newLoader=$installation.Legacy
         if ($automatic -and ($newLoader -or $ExpectedCurrentHash -ne $installation.CurrentHash -or
-                $ExpectedNewHash -ne $newHash -or !(Test-AutoUpdateEnabled $gameRoot))) {
-            throw 'Automatic update was cancelled because the installation or settings changed.'
+                $ExpectedNewHash -ne $newHash -or (!$ManualApproval -and !(Test-AutoUpdateEnabled $gameRoot)))) {
+            throw 'Update cancelled because the installation or settings changed.'
         }
         if (!$automatic) {
             $scriptFile=Read-GameText $autoexec
@@ -60,8 +61,11 @@ try {
         throw 'Another dxgi.dll is already installed in the game folder.'
     }
     if ($Update -and !$newLoader -and !$scriptChanged -and $newHash -eq $installation.CurrentHash) {
-        if ($PSScriptRoot -ne "$gameRoot\addons\LfsPad\update" -and [IO.File]::Exists("$PSScriptRoot\update.ps1")) {
-            Install-UpdateWorker $gameRoot $PSScriptRoot (New-BackupFolder $gameRoot 'worker-')
+        if ($WorkerSource -ne "$gameRoot\addons\LfsPad\update" -and
+                [IO.File]::Exists((Join-Path $WorkerSource 'update.ps1'))) {
+            $backup=New-BackupFolder $gameRoot 'worker-'
+            Add-UpdateWorkerChanges $gameRoot $WorkerSource $backup $changes
+            Set-InstallationFiles $gameRoot $backup $changes
         }
         Write-Output 'This LfsPad build is already installed.'
         return
@@ -113,7 +117,7 @@ try {
     }
     $manifest | ConvertTo-Json | Set-Content -LiteralPath "$backup\installation.new" -Encoding utf8
     $changes[$manifestFile]="$backup\installation.new"
-    Install-UpdateWorker $gameRoot $PSScriptRoot $backup
+    Add-UpdateWorkerChanges $gameRoot $WorkerSource $backup $changes
     Set-InstallationFiles $gameRoot $backup $changes -NewLoader:$newLoader
     $operation=if ($Update) { 'Updated' } else { 'Installed' }
     Write-Output "$operation LfsPad. Backup: $backup"

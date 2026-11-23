@@ -109,9 +109,9 @@ Kurucu, eski kurulumları kayıtlı SHA-256 özetleriyle doğrular. Eski LfsPad 
 
 ## Otomatik güncellemeler
 
-Oyun açıldığında LfsPad, kurucunun `addons/LfsPad/update` klasörüne yerleştirdiği betiği görünür bir pencere açmadan çalıştırır. Betik GitHub’daki son kararlı sürüme bakar ve `LfsPad-<sürüm>-update-dxgi-win32.dll` dosyasının boyutunu, SHA-256 özetini ve x86 biçimini doğrular. Oyun kapanınca kurulum kilidini alır ve kurulu DLL’nin indirme öncesindeki sürümle aynı olduğundan emin olur. Ardından kurucunun kullandığı yedekleme ve dosya değiştirme yoluyla günceller.
+Oyun açıldığında veya kullanıcı elle denetim istediğinde `addons/LfsPad/update` altındaki betik GitHub sürüm bilgilerini okur. Onaydan sonra ayrı bir işlem, belirli sürümün Windows ZIP dosyasını indirir ve gösterilen paketin boyutunu ve SHA-256 özetini doğrular. Yalnızca beklenen DLL ve güncelleme betikleri çıkarılır. DLL’nin x86 biçimi doğrulandıktan sonra LFS’ye InSim üzerinden temiz kapanma isteği gönderilir. Kurulum kilidi altında DLL, güncelleme betikleri ve kurulum kaydı hep birlikte değiştirilir. İşlem ardından LFS’yi aynı klasörden yeniden açar.
 
-Son denetimin sonucu `addons/LfsPad/update/status.log` dosyasındadır. **Genel → Otomatik güncelleme** seçeneği `LfsPad.ini` içindeki `[General]` bölümüne kaydedilir. Sürüm yayımlarken Windows ZIP, kaynak ZIP ve kurulum EXE’siyle birlikte derlemeden çıkan güncelleme DLL’si de GitHub sürümüne eklenir.
+Son denetimin sonucu `addons/LfsPad/update/status.log` dosyasındadır. **Güncelleme → Açılışta güncelleme denetle** seçeneği `LfsPad.ini` içindeki `[General]` bölümüne kaydedilir. Oyun içi güncelleyici GitHub’daki `LfsPad-<sürüm>-rfs-win32.zip` dosyasını kullanır.
 
 Yedekler oyun klasöründe `addons/LfsPad/backups` altında tutulur.
 

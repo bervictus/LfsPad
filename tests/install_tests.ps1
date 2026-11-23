@@ -22,6 +22,21 @@ function New-Fixture([string]$Name) {
 function Install([string]$Root) { & "$projectRoot\tools\install.ps1" -GameDirectory $Root | Out-Null }
 function Uninstall([string]$Root) { & "$projectRoot\tools\uninstall.ps1" -GameDirectory $Root | Out-Null }
 try {
+    . "$projectRoot\tools\update.ps1"
+    $assetName='LfsPad-0.4.0-rfs-win32.zip'
+    $published=@{tag_name='v0.4.0'; draft=$false; prerelease=$true; assets=@(
+        @{name=$assetName; state='uploaded'; size=2000; digest='sha256:'+('a'*64);
+          browser_download_url="https://github.com/bervictus/LfsPad/releases/download/v0.4.0/$assetName"}
+    )}
+    $offer=Get-ReleaseAsset $published ([version]'0.3.0')
+    Check ($offer.Version -eq '0.4.0' -and $offer.Hash -eq ('a'*64)) 'pre-release is offered'
+    Check ($null -eq (Get-ReleaseAsset $published ([version]'0.4.0'))) 'current release does not download'
+    $published.draft=$true
+    Check ($null -eq (Get-ReleaseAsset $published ([version]'0.3.0'))) 'draft is ignored'
+    $published.draft=$false
+    $published.assets[0].browser_download_url='https://example.com/update.zip'
+    Reject { Get-ReleaseAsset $published ([version]'0.3.0') } 'update asset on another host is refused'
+
     $root=New-Fixture 'rfs-loader'
     $directInput="$root\dinput8.dll"
     $dxgi="$root\dxgi.dll"
@@ -58,20 +73,25 @@ try {
     [IO.File]::AppendAllText($update,'updated-lfspad-fixture')
     $updateHash=(Get-FileHash -LiteralPath $update).Hash
     $workerInstaller="$root\addons\LfsPad\update\install.ps1"
-    $automatic=@{GameDirectory=$root; DllPath=$update; Update=$true; ExpectedCurrentHash=$currentHash; ExpectedNewHash=$updateHash}
-    $stale=$automatic.Clone()
+    $validatedUpdate=@{GameDirectory=$root; DllPath=$update; Update=$true; ExpectedCurrentHash=$currentHash; ExpectedNewHash=$updateHash}
+    $stale=$validatedUpdate.Clone()
     $stale.ExpectedCurrentHash='0'*64
     Reject { & $workerInstaller @stale } 'automatic update rejects stale installed hash'
-    $invalid=$automatic.Clone()
+    $invalid=$validatedUpdate.Clone()
     $invalid.ExpectedNewHash='0'*64
     Reject { & $workerInstaller @invalid } 'automatic update rejects unexpected download hash'
     $iniBefore=[IO.File]::ReadAllBytes($ini)
     [IO.File]::AppendAllLines($ini,[string[]]@('','[General]','AutoUpdate=0'))
-    Reject { & $workerInstaller @automatic } 'automatic update respects new opt-out'
+    Reject { & $workerInstaller @validatedUpdate } 'automatic update respects new opt-out'
     Check ((Get-FileHash -LiteralPath $dxgi).Hash -eq $currentHash) 'rejected automatic updates leave DLL intact'
+    $nextWorker=Join-Path $fixtureRoot 'next-worker'
+    [IO.Directory]::CreateDirectory($nextWorker) | Out-Null
+    Copy-Item -LiteralPath "$projectRoot\tools\install-common.ps1","$projectRoot\tools\install.ps1" -Destination $nextWorker
+    [IO.File]::WriteAllText("$nextWorker\update.ps1",'# next update worker')
+    & $workerInstaller @validatedUpdate -ManualApproval -WorkerSource $nextWorker | Out-Null
+    Check ((Get-FileHash -LiteralPath $dxgi).Hash -eq $updateHash) 'manual approval bypasses launch check opt-out'
+    Check ((Get-Content -LiteralPath $worker -Raw) -eq '# next update worker') 'worker and DLL advance together'
     [IO.File]::WriteAllBytes($ini,$iniBefore)
-    & $workerInstaller @automatic | Out-Null
-    Check ((Get-FileHash -LiteralPath $dxgi).Hash -eq $updateHash) 'automatic update installed after RFS replaced dinput8'
     Check ((Get-FileHash -LiteralPath $ini).Hash -eq $iniHash) 'update preserves settings'
     Check ((Get-FileHash -LiteralPath $directInput).Hash -eq $rfsUpdateHash) 'LfsPad update preserves new RFS loader'
     [IO.File]::WriteAllText($directInput,'second-rfs-update-fixture')

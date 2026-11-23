@@ -12,7 +12,7 @@ Version 0.3.0 brings a controller steering assist inspired by LFS’s stabilised
 2. Choose **English** or **Türkçe** at the top right and click **Next**. Check the detected folder or use **Browse** to select the folder containing `LFS.exe`.
 3. Click **Install**, or **Update** if LfsPad is already installed. Then launch LFS as usual.
 
-Download pre-releases from GitHub and run their installer to update. Automatic updates install stable releases only.
+Run the GitHub installer once to move to 0.4.0. You can install later releases from inside LFS.
 
 If you installed the first 0.2.0 build, run the new installer once and choose **Update**. This moves LfsPad to a separate file so RFS can update its own loader. To uninstall, open the same installer, select the same folder and click **Uninstall LfsPad**. Updates keep your settings. Setup uses the InSim port already set in the game’s startup script.
 
@@ -26,7 +26,7 @@ Hold both triggers in a menu to open LfsPad settings. Use **LB/RB** to switch be
 
 With RFS installed, press **LB + RB** together in an LFS menu for the RFS pointer. Move with the right stick, click or drag with **A**, and scroll with the D-pad. Press **B** to return to item navigation.
 
-LfsPad checks GitHub for stable updates at launch. If a compatible update is available, it verifies the DLL and installs it after you quit LFS. Settings and the RFS loader are preserved. You can turn this off in **General → Automatic updates**.
+Open **Options → LfsPad**, or hold **LT + RT** in a menu. In **Updates**, choose **Check for updates now** for a manual check. Launch checks include GitHub pre-releases and can be turned off on the same page. When the update prompt appears outside a race, choose **OK** to download and verify the package, install it, and reopen LFS.
 
 ## Controllers
 

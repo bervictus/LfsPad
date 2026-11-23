@@ -135,17 +135,23 @@ inline float axisFraction(std::int32_t value, std::int32_t minimum,
   return span > 0 ? std::clamp(float(delta) / float(span), -1.f, 1.f) : 0.f;
 }
 inline int nextTab(const std::vector<Item> &items, int direction) {
-  std::vector<int> tabs;
-  int active = 0;
+  int first = -1, last = -1, active = -1, before = -1, after = -1;
   for (int i = 0; i < int(items.size()); ++i)
     if (items[i].tab) {
-      if (items[i].active)
-        active = int(tabs.size());
-      tabs.push_back(i);
+      if (first < 0)
+        first = i;
+      if (items[i].active || active < 0) {
+        active = i;
+        before = last;
+        after = -1;
+      } else if (after < 0)
+        after = i;
+      last = i;
     }
-  return tabs.size() < 2
-             ? -1
-             : tabs[(active + direction + tabs.size()) % tabs.size()];
+  if (first == last)
+    return -1;
+  return direction < 0 ? (before >= 0 ? before : last)
+                       : (after >= 0 ? after : first);
 }
 inline int sliderArrow(const std::vector<Item> &items, int selected,
                        int direction) {
@@ -393,5 +399,11 @@ inline bool menuCapture(bool stateKnown, std::uint16_t flags, unsigned mode,
   return nativeMenu ||
          (stateKnown &&
           (!(flags & 1) || (flags & (16 | 256 | 32768)) || mode != 0));
+}
+inline bool nativeTextEntry(bool knownDialog, bool stateKnown, std::uint16_t flags) {
+  return knownDialog || (stateKnown && (flags & 0x8000));
+}
+inline bool escapeFromBack(bool inMenu, bool raceMenu, bool onTrack) {
+  return inMenu && (raceMenu || !onTrack);
 }
 } // namespace pad

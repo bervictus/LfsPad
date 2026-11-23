@@ -2,7 +2,7 @@
 
 **Türkçe** · [English](CONTROLS.md)
 
-Menüde iki tetiği birlikte tut. Ayarlarda **LB/RB** ile Genel, Kontroller, Sürüş ve Kısayollar sekmeleri arasında geç. **Genel → Dil** satırını sağ/sol ile değiştir, A ile kaydet veya B ile vazgeç.
+**Seçenekler → LfsPad**’i aç veya bir menüde iki tetiği birlikte tut. Ayarlarda **LB/RB** ile kategoriler arasında geç. **Genel → Dil** satırını sağ/sol ile değiştir, A ile kaydet veya B ile vazgeç.
 
 **Kontrolcü simgeleri** satırı, köşelerdeki normal tuş ipuçlarını açar veya kapatır. Kapatınca atama, kısayol ve onay gibi anlık yönlendirmeler yazıyla görünür.
 
@@ -20,6 +20,8 @@ Menüde iki tetiği birlikte tut. Ayarlarda **LB/RB** ile Genel, Kontroller, Sü
 | İmleci açmak | R3 (sağ analoga bas) |
 | İmleci kullanmak | Sağ analogla hareket et. A ile tıkla, X ile sağ tıkla. Sürüklemek için A’yı basılı tut. D-pad yukarı/aşağı sayfayı kaydırır. |
 | Yazı yazmak | Y ile Türkçe Q klavyeyi aç. Y büyük/küçük harfi değiştirir, X siler, Start yazıyı onaylar. |
+
+Modlar ekranında **Ara** veya **Yazar** alanını seçtiğinde klavye kendiliğinden açılır. **Tamam** filtreyi uygular, **B** düzenlemeyi kapatır. Klavyedeki tuşlara fareyle de basabilirsin.
 
 **PlayStation’da** A, B, X ve Y sırasıyla **Çarpı, Daire, Kare ve Üçgen**. LB/RB yerine L1/R1, LT/RT yerine L2/R2 kullan. Start, **Options** tuşuna karşılık gelir. Back için **Share** veya **Create** kullan. Sixaxis ve DualShock 3’te bu iki tuşun adı **Start** ve **Select**.
 

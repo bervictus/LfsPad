@@ -96,18 +96,20 @@ function New-BackupFolder([string]$Root, [string]$Prefix='') {
     [IO.Directory]::CreateDirectory($backup).FullName
 }
 
-function Install-UpdateWorker([string]$Root, [string]$Source, [string]$Backup) {
+function Add-UpdateWorkerChanges([string]$Root, [string]$Source, [string]$Backup,
+        [Collections.IDictionary]$Changes) {
     if (![IO.File]::Exists((Join-Path $Source 'update.ps1'))) { return }
     $target=Join-Path $Root 'addons\LfsPad\update'
     if ($Source -eq $target) { return }
     Assert-SafePath $target -Directory
     $files='install-common.ps1','install.ps1','update.ps1'
-    foreach ($name in $files) { Assert-SafePath (Join-Path $target $name) }
     [IO.Directory]::CreateDirectory($target) | Out-Null
     foreach ($name in $files) {
+        $original=Join-Path $Source $name
+        Assert-SafePath $original
         $staged=Join-Path $Backup "$name.new"
-        Copy-Item -LiteralPath (Join-Path $Source $name) -Destination $staged
-        Set-InstallationFile $staged (Join-Path $target $name)
+        Copy-Item -LiteralPath $original -Destination $staged
+        $Changes["addons\LfsPad\update\$name"]=$staged
     }
 }
 

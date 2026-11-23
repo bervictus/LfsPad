@@ -18,7 +18,9 @@ The **Controller icons** setting shows or hides the routine corner prompts. Bind
 
 On PlayStation, use Cross, Circle, Square and Triangle for A, B, X and Y. L1/R1 are the shoulder buttons and L2/R2 are the triggers. Use Options for Start and Share or Create for Back. Sixaxis and DualShock 3 use Start and Select.
 
-Hold both triggers to open settings. Use **LB/RB** to switch settings tabs. In **General → Language**, press left/right to switch between Turkish and English. Press A to save or B to discard. Text appears in the game's own text field, which handles password masking.
+Open **Options → LfsPad**, or hold both triggers in a menu. Use **LB/RB** to change categories. In **General → Language**, press left/right to switch between Turkish and English. Press A to save or B to discard.
+
+The keyboard opens when you select **Search** or **Author** in Mods. **Done** applies the filter and **B** closes the editor. You can click the keys with the mouse. Text appears in the game's own field, which handles password masking.
 
 Use left/right in **General → Player profile** to choose from three profiles. The first time you select a profile, it copies your current LfsPad controller settings. Button bindings, stick deadzone, cursor speed, vibration, icons and menu shortcuts are stored per profile. Press **X** to rename with the on-screen keyboard, **Start** to accept the name, then **A** to save. **B** on the settings screen discards unsaved changes. Manage driving bindings in LFS's own **Options → Controls** menu.
 

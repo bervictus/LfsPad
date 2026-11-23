@@ -65,6 +65,14 @@ static double scrollSentAt = 0;
 static bool restoreAfterScroll = false;
 static HWND window = nullptr;
 static WNDPROC previousWndProc = nullptr;
+enum class OverlayClick {
+  None, OptionsTab, UpdateAccept, UpdateLater, KeyboardFirst,
+  SettingsTabFirst = 64, SettingsRowFirst = 69
+};
+struct OverlayTarget { RECT rect{}; OverlayClick action{}; };
+static std::array<OverlayTarget, 73> overlayTargets;
+static OverlayClick overlayClick = OverlayClick::None, overlayPress = OverlayClick::None;
+static RECT overlayShield{};
 static std::atomic<unsigned> diagnosticKeys{0};
 static std::atomic<bool> assignmentFocusLost{false};
 static bool diagnosticsEnabled = false;
@@ -77,6 +85,24 @@ static void cancelFinishHold() {
 static void releaseKeys(bool all = false);
 static void releaseMouse();
 static LRESULT CALLBACK windowProc(HWND h, UINT message, WPARAM w, LPARAM l) {
+  if (message == WM_LBUTTONDOWN || message == WM_LBUTTONUP) {
+    const POINT p{short(LOWORD(l)), short(HIWORD(l))};
+    if (message == WM_LBUTTONUP && overlayPress != OverlayClick::None) {
+      for (const auto &target : overlayTargets)
+        if (target.action == overlayPress && PtInRect(&target.rect, p))
+          overlayClick = target.action;
+      overlayPress = OverlayClick::None;
+      return 0;
+    }
+    if (message == WM_LBUTTONDOWN)
+      for (const auto &target : overlayTargets)
+        if (target.action != OverlayClick::None && PtInRect(&target.rect, p)) {
+          overlayPress = target.action;
+          return 0;
+        }
+    if (PtInRect(&overlayShield, p))
+      return 0;
+  }
   int diagnosticIndex = w >= '1' && w <= '9' ? int(w - '1')
                         : w == 'M'           ? 9
                         : w == 'H'           ? 10
@@ -115,6 +141,7 @@ static LRESULT CALLBACK windowProc(HWND h, UINT message, WPARAM w, LPARAM l) {
     nativePedals.store(0);
   }
   if (message == WM_ACTIVATEAPP && !w) {
+    overlayPress = overlayClick = OverlayClick::None;
     assignmentFocusLost.store(true);
     stopMotors();
     cancelFinishHold();
@@ -143,15 +170,19 @@ static int selected = -1, settingRow = 0, settingsTab = 0;
 struct KeyboardSelection {
   int row = 0, col = 0;
   bool upper = false, symbols = false;
+  float preferredX = -1;
 };
 static KeyboardSelection gameKeys, profileKeys;
+static bool modsText = false, gameTextEntry = false, dismissedText = false;
 static bool rfsCursor = false;
 static ControllerId activeSlot = -1;
 static bool playStationCaptions = false;
 static DWORD vibrationPreviewResult = ERROR_CANCELLED;
 static std::vector<Item> items;
 static int mainMenuInitial = -1, raceFinishItem = -1, raceResumeItem = -1;
-static int optionsInitial = -1;
+static int optionsInitial = -1, optionsLast = -1;
+static Rect optionsExtension{};
+static bool optionsEntryFocus = false;
 static bool pedalCalibration = false;
 static bool nativeButtonAssignment = false;
 static unsigned mainMenuSelection = 5;
@@ -222,12 +253,12 @@ static const char *bindingName(Action a) {
   return buttonCaption(cfg.bindings[a]);
 }
 enum SettingRow {
-  controllerSetting, profileSetting, languageSetting, controllerIconsSetting, autoUpdateSetting,
+  controllerSetting, profileSetting, languageSetting, controllerIconsSetting,
   controllerCheckSetting,
   deadzoneSetting, cursorSpeedSetting, firstBindingSetting,
   quickMenuSetting = firstBindingSetting + 9, monitorSetting, rumbleSetting,
   steeringSetting, steeringHelpSetting, clutchSetting,
-  shortcutSetting, shortcutUsageSetting, settingCount
+  shortcutSetting, shortcutUsageSetting, autoUpdateSetting, manualUpdateSetting, settingCount
 };
 struct SettingsTab {
   LocalizedText label;
@@ -237,7 +268,8 @@ static constexpr SettingsTab settingsTabs[] = {
     {{"Genel", "General"}, controllerSetting, deadzoneSetting},
     {{"Kontroller", "Controls"}, deadzoneSetting, quickMenuSetting},
     {{"Sürüş", "Driving"}, quickMenuSetting, shortcutSetting},
-    {{"Kısayollar", "Shortcuts"}, shortcutSetting, settingCount},
+    {{"Kısayollar", "Shortcuts"}, shortcutSetting, autoUpdateSetting},
+    {{"Güncelleme", "Updates"}, autoUpdateSetting, settingCount},
 };
 static bool isBindingSetting() {
   return settingRow >= firstBindingSetting && settingRow < quickMenuSetting;
@@ -401,31 +433,118 @@ static bool saveConfig() {
   writePlayerInput(cfg, put);
   return inputSaved;
 }
-static void checkForUpdate() {
-  if (!cfg.autoUpdate)
-    return;
+enum class UpdateView { Idle, Checking, Offer, Downloading, Current, Failed };
+static UpdateView updateView = UpdateView::Idle;
+static HANDLE updateWorker = nullptr;
+static bool updateAutomatic = false, updateExitSent = false;
+static bool updateAccept = true;
+static std::wstring updateRequest;
+static std::string updateVersion, updateHash;
+
+static std::string readUpdateSignal(const wchar_t *suffix) {
+  const auto signal = updateRequest + suffix;
+  const auto file = CreateFileW(signal.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+  if (file == INVALID_HANDLE_VALUE)
+    return {};
+  BY_HANDLE_FILE_INFORMATION info{};
+  char payload[110]{};
+  DWORD length = 0;
+  const bool read = GetFileInformationByHandle(file, &info) &&
+      !(info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) &&
+      !info.nFileSizeHigh && info.nFileSizeLow < sizeof(payload) &&
+      ReadFile(file, payload, sizeof(payload), &length, nullptr);
+  CloseHandle(file);
+  return read ? std::string(payload, length) : std::string{};
+}
+
+static bool parseUpdateOffer(const std::string &result) {
+  if (result.compare(0, 6, "offer ") != 0)
+    return false;
+  const auto space = result.find(' ', 6);
+  if (space == std::string::npos)
+    return false;
+  const auto version = result.substr(6, space - 6);
+  const auto hash = result.substr(space + 1);
+  if (version.empty() || version.size() > 29 || version.front() == '.' ||
+      version.back() == '.' || version.find("..") != std::string::npos ||
+      std::count(version.begin(), version.end(), '.') != 2 ||
+      version.find_first_not_of("0123456789.") != std::string::npos ||
+      hash.size() != 64 || hash.find_first_not_of("0123456789abcdef") != std::string::npos)
+    return false;
+  updateVersion = version;
+  updateHash = hash;
+  return true;
+}
+
+static bool startUpdate(bool install, bool automatic) {
+  if (updateWorker)
+    return false;
   const auto worker = path(L"addons\\LfsPad\\update\\update.ps1");
   if (worker.empty() || GetFileAttributesW(worker.c_str()) == INVALID_FILE_ATTRIBUTES)
-    return;
+    return false;
   wchar_t system[MAX_PATH]{};
   const auto length = GetSystemDirectoryW(system, _countof(system));
   if (!length || length >= _countof(system))
-    return;
+    return false;
   const std::wstring powershell = std::wstring(system) +
       L"\\WindowsPowerShell\\v1.0\\powershell.exe";
+  static unsigned sequence = 0;
+  const auto request = std::to_wstring(GetCurrentProcessId()) + L"-" +
+      std::to_wstring(GetTickCount64()) + L"-" + std::to_wstring(++sequence);
+  updateRequest = path((L"addons\\LfsPad\\update\\request-" + request).c_str());
+  if (updateRequest.empty())
+    return false;
   std::wstring command = L"\"" + powershell +
       L"\" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File \"" +
       worker + L"\" -GamePid " + std::to_wstring(GetCurrentProcessId()) +
-      L" -RunningVersion " L"" LFSPAD_VERSION;
+      L" -RunningVersion " L"" LFSPAD_VERSION L" -RequestId " + request;
+  if (automatic)
+    command += L" -Automatic";
+  if (install)
+    command += L" -Phase Install -TargetVersion " +
+        std::wstring(updateVersion.begin(), updateVersion.end()) + L" -ExpectedArchiveHash " +
+        std::wstring(updateHash.begin(), updateHash.end());
   STARTUPINFOW startup{};
   startup.cb = sizeof(startup);
   PROCESS_INFORMATION process{};
   if (CreateProcessW(powershell.c_str(), command.data(), nullptr, nullptr, FALSE,
                      CREATE_NO_WINDOW, nullptr, system, &startup, &process)) {
     CloseHandle(process.hThread);
-    CloseHandle(process.hProcess);
-  } else {
-    log("Update check could not start: %lu", GetLastError());
+    updateWorker = process.hProcess;
+    updateAutomatic = automatic;
+    updateExitSent = false;
+    updateAccept = false;
+    updateView = install ? UpdateView::Downloading : UpdateView::Checking;
+    return true;
+  }
+  log("Update worker could not start: %lu", GetLastError());
+  return false;
+}
+
+static void pollUpdate(bool safeToExit, ULONGLONG now) {
+  static ULONGLONG nextPoll = 0;
+  if (!updateWorker || now < nextPoll)
+    return;
+  nextPoll = now + 180;
+  if (WaitForSingleObject(updateWorker, 0) != WAIT_TIMEOUT) {
+    CloseHandle(updateWorker);
+    updateWorker = nullptr;
+    const auto result = readUpdateSignal(L".result");
+    DeleteFileW((updateRequest + L".result").c_str());
+    if (updateView == UpdateView::Checking && parseUpdateOffer(result)) {
+      updateView = UpdateView::Offer;
+      updateAccept = true;
+    } else if (updateView == UpdateView::Checking && result == "current")
+      updateView = updateAutomatic ? UpdateView::Idle : UpdateView::Current;
+    else
+      updateView = updateView == UpdateView::Downloading || !updateAutomatic
+          ? UpdateView::Failed : UpdateView::Idle;
+  } else if (updateView == UpdateView::Downloading && !updateExitSent && safeToExit &&
+             readUpdateSignal(L".ready") == "ready") {
+    updateExitSent = simCommand("/exit");
+    if (updateExitSent)
+      log("LfsPad update verified; sent LFS a clean exit request");
   }
 }
 static bool validMenuRect(const Rect &r) {
@@ -452,6 +571,9 @@ static bool gather(uintptr_t modal, bool inGarageMode) {
   garageSkinPrefix = garageSkinName = 0;
   mainMenuInitial = -1;
   optionsInitial = -1;
+  optionsLast = -1;
+  optionsExtension = {};
+  modsText = false;
   pedalCalibration = nativeButtonAssignment = false;
   raceFinishItem = -1;
   raceResumeItem = -1;
@@ -476,9 +598,22 @@ static bool gather(uintptr_t modal, bool inGarageMode) {
   garageModal = modal && inGarageMode && garageContext &&
                 !garageRoot && !garageViewer && !garageSkins;
   unsigned listOwner = 0;
+  Rect extraOption{};
   for (int i = 0; i < count; ++i) {
     auto &n = native[i];
     auto r = n.rect;
+    // Mods' Search and Author fields become an inline editor without
+    // changing owner or opening the standard text dialog. The native clear
+    // button remains immediately to the right of either focused field.
+    if (modal && n.owner == modal && n.type == 14 && !n.callback && n.value == 0 &&
+        i + 1 < count && validMenuRect(r)) {
+      const auto &clear = native[i + 1];
+      modsText |= clear.owner == modal && clear.type == 0 &&
+          clear.callback == uintptr_t(imageBase) + 0x4c950 &&
+          (clear.value == 1 || clear.value == 2) &&
+          std::abs(r.r - clear.rect.l) < .002f && std::abs(r.t - clear.rect.t) < .002f &&
+          std::abs(r.b - clear.rect.b) < .002f;
+    }
     if (!n.owner || !n.callback || !validMenuRect(r))
       continue;
     if ((garageRoot || garageViewer || garageSkins || garageModal) && n.owner != modal)
@@ -506,6 +641,13 @@ static bool gather(uintptr_t modal, bool inGarageMode) {
                             n.value >= 1 && n.value <= 9;
     if (optionsTab && (active || optionsInitial < 0))
       optionsInitial = int(items.size());
+    if (optionsTab && n.value == 9) {
+      optionsLast = int(items.size());
+      const float tabHeight = r.b - r.t;
+      optionsExtension = {r.l, r.b + tabHeight * .29f, r.r, r.b + tabHeight * 1.29f};
+    }
+    if (n.owner == uintptr_t(imageBase) + 0x49129c && n.type == 4 && n.value == 10)
+      extraOption = r;
     // LT+RT is a real pedal input while the native Axes / FF page is active.
     if (active && n.owner == modal && callback == 0x10aba0 && n.type == 0 &&
         n.value == 5)
@@ -563,6 +705,19 @@ static bool gather(uintptr_t modal, bool inGarageMode) {
          optionsTab || (callback == 0x141220 && n.type == 0),
          selectedPreset || active});
   }
+  if (optionsLast >= 0 && validMenuRect(extraOption)) {
+    // RFS uses the next full-width position. Leave the small native arrows
+    // clear and use the remaining width of their row.
+    const float tabHeight = extraOption.b - extraOption.t;
+    optionsExtension.t = extraOption.b + tabHeight * .5f;
+    optionsExtension.b = optionsExtension.t + tabHeight;
+    optionsExtension.l += (optionsExtension.r - optionsExtension.l) * .48f;
+  }
+  if (validMenuRect(optionsExtension) && std::any_of(items.begin(), items.end(), [](const Item &item) {
+        const auto &a = item.rect, &b = optionsExtension;
+        return a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+      }))
+    optionsExtension = {};
   for (auto &view : garageLists) {
     if (view.entries.empty())
       continue;
@@ -1066,6 +1221,8 @@ static void moveGarageViewer(float x, float y, int zoom, float width,
   lastDirection = zoom;
 }
 static void character(wchar_t ch) {
+  if (GetForegroundWindow() != window)
+    return;
   INPUT i[2]{};
   for (auto &e : i) {
     e.type = INPUT_KEYBOARD;
@@ -1113,6 +1270,21 @@ static ImVec2 pixel(float x, float y) {
 static void label(float x, float y, const char *s,
                   ImU32 col = IM_COL32(245, 245, 245, 255)) {
   ImGui::GetForegroundDrawList()->AddText({x, y}, col, s);
+}
+static RECT hitRect(ImVec2 a, ImVec2 b) {
+  return {LONG(a.x), LONG(a.y), LONG(b.x), LONG(b.y)};
+}
+static void drawOptionsEntry(bool focused) {
+  const auto a = pixel(optionsExtension.l, optionsExtension.t),
+             b = pixel(optionsExtension.r, optionsExtension.b);
+  overlayTargets[0] = {hitRect(a, b), OverlayClick::OptionsTab};
+  auto *draw = ImGui::GetForegroundDrawList();
+  draw->AddRectFilled(a, b, IM_COL32(18, 26, 32, 211), 4);
+  draw->AddRectFilled(a, {a.x + 4, b.y}, IM_COL32(255, 181, 79, 255), 2);
+  if (focused)
+    draw->AddRect(a, b, IM_COL32(119, 244, 207, 255), 4, 0, 2);
+  const auto size = ImGui::CalcTextSize("LfsPad");
+  label((a.x + b.x - size.x) * .5f, (a.y + b.y - size.y) * .5f, "LfsPad");
 }
 static void hudLabel(float x, float y, const char *value,
                      ImU32 colour = IM_COL32(245, 245, 245, 255)) {
@@ -1349,16 +1521,33 @@ static void finishProfileName(bool apply) {
 
 static void moveKeyboard(KeyboardSelection &keys, const bool (&nav)[4], bool next) {
   const auto rows = keyboardRows(cfg.language, keys.upper, keys.symbols);
-  if (nav[0])
-    keys.row = (keys.row + 4) % 5;
-  if (nav[1])
-    keys.row = (keys.row + 1) % 5;
-  const int columns = keys.row == 4 ? 6 : int(rows[keys.row].size());
-  keys.col = std::min(keys.col, columns - 1);
-  if (nav[2])
-    keys.col = (keys.col + columns - 1) % columns;
-  if (nav[3] || next)
-    keys.col = (keys.col + 1) % columns;
+  const auto columns = [&](int row) { return row == 4 ? 6 : int(rows[row].size()); };
+  keys.col = std::clamp(keys.col, 0, columns(keys.row) - 1);
+  if (nav[0] != nav[1]) {
+    if (keys.preferredX < 0)
+      keys.preferredX = keyboardKey(keys.row, keys.col, columns(keys.row)).center();
+    keys.row = (keys.row + (nav[0] ? 4 : 1)) % 5;
+    keys.col = nearestKeyboardKey(keys.row, columns(keys.row), keys.preferredX);
+  }
+  if (nav[2] != (nav[3] || next)) {
+    const int count = columns(keys.row), step = nav[2] ? count - 1 : 1;
+    if (keys.row < 4)
+      keys.col = (keys.col + step) % count;
+    else {
+      const auto position = std::find(std::begin(keyboardFooterOrder),
+                                      std::end(keyboardFooterOrder), keys.col);
+      keys.col = keyboardFooterOrder[(position - std::begin(keyboardFooterOrder) + step) % count];
+    }
+    keys.preferredX = -1;
+  }
+}
+
+static void closeGameKeyboard(bool submit) {
+  if (submit || gameTextEntry)
+    simKey(submit ? "enter" : "esc");
+  keyboard = manualKeyboard = false;
+  dismissedText = true;
+  blockMenuInput();
 }
 
 static void keyAction() {
@@ -1386,64 +1575,87 @@ static void keyAction() {
     break;
   case 2:
     keys.upper = !keys.upper;
+    keys.preferredX = -1;
     break;
   case 3:
     keys.symbols = !keys.symbols;
+    keys.preferredX = -1;
     break;
   case 4:
   case 5:
     if (profileNaming)
       finishProfileName(keys.col == 4);
-    else {
-      simKey(keys.col == 4 ? "enter" : "esc");
-      keyboard = manualKeyboard = false;
-    }
+    else
+      closeGameKeyboard(keys.col == 4);
     break;
   }
 }
+static bool selectClickedKey(KeyboardSelection &keys, OverlayClick click) {
+  const int key = int(click) - int(OverlayClick::KeyboardFirst);
+  if (key < 0 || key >= 60)
+    return false;
+  keys.row = key / 12;
+  keys.col = key % 12;
+  keys.preferredX = -1;
+  return true;
+}
 static void drawKeyboard(float width, float height) {
   const auto &keys = profileNaming ? profileKeys : gameKeys;
-  float cw = std::min(width * .052f, 64.f), ch = std::min(height * .065f, 54.f),
-        w = cw * 12 + 40, l = (width - w) / 2,
-        t = std::max(70.f, height - ch * 5 - 110);
-  panel(l, t, l + w, t + ch * 5 + 90);
+  const float cw = std::min((width - 44) / 12, 68.f);
+  const float ch = std::clamp(height * .062f, 29.f, 54.f);
+  const float w = cw * 12 + 28, l = (width - w) / 2;
+  const float h = ch * 5 + (profileNaming ? 100.f : 70.f);
+  const float t = std::max(8.f, height - h - 21.f);
+  panel(l, t, l + w, t + h);
+  overlayShield = hitRect({l, t}, {l + w, t + h});
   char hint[160];
   if (profileNaming)
-    std::snprintf(hint, sizeof(hint), text("Profil adı   %s Sil   %s Büyük/küçük   %s Tamam",
-                                          "Profile name   %s Delete   %s Change case   %s Done"),
-                  buttonCaption(PadX), buttonCaption(PadY), buttonCaption(PadStart));
+    std::snprintf(hint, sizeof(hint), "%s", text("Profil adı", "Profile name"));
   else
-    std::snprintf(hint, sizeof(hint),
-                  text("TÜRKÇE Q   |   %s: Sil   %s: Büyük/küçük   %s: Tamam", "ENGLISH QWERTY   |   %s: Delete   %s: Change case   %s: OK"),
-                  bindingName(Secondary), bindingName(Keyboard), bindingName(Menu));
-  label(l + 20, t + 12, hint);
+    std::snprintf(hint, sizeof(hint), "%s", text("Türkçe Q", "English QWERTY"));
+  label(l + 16, t + 10, hint);
+  std::snprintf(hint, sizeof(hint), text("%s Sil   %s Büyük/küçük   %s Tamam", "%s Delete   %s Change case   %s Done"),
+                profileNaming ? buttonCaption(PadX) : bindingName(Secondary),
+                profileNaming ? buttonCaption(PadY) : bindingName(Keyboard),
+                profileNaming ? buttonCaption(PadStart) : bindingName(Menu));
+  const float hintWidth = ImGui::CalcTextSize(hint).x;
+  if (hintWidth + 180 < w)
+    label(l + w - 16 - hintWidth, t + 10, hint, IM_COL32(192, 205, 220, 255));
   const auto rows = keyboardRows(cfg.language, keys.upper, keys.symbols);
   auto d = ImGui::GetForegroundDrawList();
   for (int row = 0; row < 5; ++row) {
     int count = row == 4 ? 6 : int(rows[row].size());
-    float cell = row == 4 ? cw * 2 : cw;
     for (int col = 0; col < count; ++col) {
-      float x = l + 20 + col * cell, y = t + 48 + row * ch;
-      bool sel = row == keys.row && col == keys.col;
-      d->AddRectFilled(
-          {x + 2, y + 2}, {x + cell - 2, y + ch - 2},
-          sel ? IM_COL32(40, 170, 133, 255) : IM_COL32(40, 50, 65, 255), 5);
-      const char *special[] = {text("Boşluk", "Space"), text("Sil", "Delete"),   "Aa",
-                                      "#+=",    text("Tamam", "OK"), text("İptal", "Cancel")};
-      auto caption = row == 4 ? std::string(special[col])
-                           : utf8(std::wstring(1, rows[row][col]));
+      const auto key = keyboardKey(row, col, count);
+      const float x = l + 14 + key.x * cw, y = t + 41 + row * ch, cell = key.width * cw;
+      const bool selectedKey = row == keys.row && col == keys.col;
+      const bool done = row == 4 && col == 4;
+      const ImVec2 from{x + 3, y + 3}, to{x + cell - 3, y + ch - 3};
+      const int index = row * 12 + col;
+      overlayTargets[index + 2] = {hitRect(from, to),
+          OverlayClick(int(OverlayClick::KeyboardFirst) + index)};
+      d->AddRectFilled(from, to, selectedKey ? IM_COL32(35, 120, 101, 255)
+                          : done ? IM_COL32(33, 75, 83, 255) : IM_COL32(45, 53, 66, 255), 6);
+      if (selectedKey)
+        d->AddRect(from, to, IM_COL32(119, 244, 207, 255), 6, 0, 2);
+      const char *special[] = {text("Boşluk", "Space"), text("Sil", "Delete"),
+                               keys.upper ? "AA" : "Aa", keys.symbols ? "ABC" : "#+=",
+                               text("Tamam", "Done"), text("İptal", "Cancel")};
+      const auto caption = row == 4 ? std::string(special[col])
+                                    : utf8(std::wstring(1, rows[row][col]));
       const bool available = !profileNaming || row == 4 || profileNameCharacter(rows[row][col]);
-      label(x + 10, y + ch * .28f, caption.c_str(),
+      const auto size = ImGui::CalcTextSize(caption.c_str());
+      label(x + (cell - size.x) * .5f, y + (ch - size.y) * .5f, caption.c_str(),
             available ? IM_COL32_WHITE : IM_COL32(145, 155, 165, 255));
     }
   }
   if (profileNaming) {
     const auto draft = profileNameDraft.empty() ? profileCaption() : utf8(profileNameDraft);
-    label(l + 20, t + 59 + ch * 5, draft.c_str());
+    label(l + 20, t + 64 + ch * 5, draft.c_str());
     char length[16];
     std::snprintf(length, sizeof(length), "%u/%u", unsigned(profileNameDraft.size()),
                   unsigned(profileNameLimit));
-    label(l + w - 20 - ImGui::CalcTextSize(length).x, t + 59 + ch * 5, length);
+    label(l + w - 20 - ImGui::CalcTextSize(length).x, t + 64 + ch * 5, length);
   }
 }
 static void adjustSetting(int direction) {
@@ -1501,7 +1713,7 @@ static void adjustSetting(int direction) {
     break;
   }
 }
-static constexpr float settingsWidth = 620.f, settingsHeight = 420.f;
+static constexpr float settingsWidth = 760.f, settingsHeight = 420.f;
 static constexpr float meterColumn = 178.f, meterHeight = 160.f, meterMargin = 19.f;
 static void blockMenuInput() {
   gate.blocked = 0xffff;
@@ -1549,24 +1761,28 @@ static void drawShortcutEditor(float l, float t, float w) {
 }
 static void drawSettings(float l, float t, float w, bool clutchAvailable) {
   panel(l, t, l + w, t + settingsHeight);
-  label(l + 22, t + 16, text("LfsPad ayarları", "LfsPad settings"));
+  overlayShield = hitRect({l, t}, {l + w, t + settingsHeight});
   const auto &tab = settingsTabs[settingsTab];
   auto *draw = ImGui::GetForegroundDrawList();
-  const float tabWidth = (w - 88.f) / std::size(settingsTabs);
+  const float tabWidth = std::min(w * .29f, 172.f);
+  const float content = l + tabWidth + 30.f;
+  draw->AddLine({l + 20, t + 49}, {l + w - 20, t + 49}, IM_COL32(255, 181, 79, 255), 2);
+  label(l + 22, t + 15, text("Seçenekler / LfsPad", "Options / LfsPad"));
   char tabHint[96];
   std::snprintf(tabHint, sizeof(tabHint), text("%s / %s · Sekme", "%s / %s · Tabs"),
                 buttonCaption(PadLB), buttonCaption(PadRB));
   label(l + w - ImGui::CalcTextSize(tabHint).x - 22, t + 16, tabHint);
   for (int i = 0; i < int(std::size(settingsTabs)); ++i) {
-    const float x = l + 44.f + tabWidth * i;
+    const float y = t + 68.f + 45.f * i;
     const char *name = settingsTabs[i].label.get(cfg.language);
-    if (i == settingsTab) {
-      draw->AddRectFilled({x, t + 50}, {x + tabWidth - 4, t + 87},
-                          IM_COL32(35, 110, 94, 255), 4);
-      draw->AddLine({x + 4, t + 88}, {x + tabWidth - 8, t + 88},
-                    IM_COL32(65, 255, 196, 255), 2);
-    }
-    label(x + (tabWidth - ImGui::CalcTextSize(name).x) / 2.f, t + 58, name,
+    overlayTargets[62 + i] = {hitRect({l + 20, y}, {l + tabWidth + 14, y + 37}),
+        OverlayClick(int(OverlayClick::SettingsTabFirst) + i)};
+    draw->AddRectFilled({l + 20, y}, {l + tabWidth + 14, y + 37},
+                        i == settingsTab ? IM_COL32(79, 63, 38, 255)
+                                         : IM_COL32(36, 44, 54, 255), 3);
+    if (i == settingsTab)
+      draw->AddRectFilled({l + 20, y}, {l + 24, y + 37}, IM_COL32(255, 181, 79, 255), 2);
+    label(l + 32, y + 7, name,
           i == settingsTab ? IM_COL32_WHITE : IM_COL32(166, 185, 202, 255));
   }
   const char *actionNames[] = {text("Onay", "Confirm"),
@@ -1590,8 +1806,9 @@ static void drawSettings(float l, float t, float w, bool clutchAvailable) {
                 profileCaption().c_str());
   std::snprintf(values[controllerIconsSetting], 100, text("Kontrolcü simgeleri: %s", "Controller icons: %s"),
                 cfg.controllerIcons ? text("Açık", "On") : text("Kapalı", "Off"));
-  std::snprintf(values[autoUpdateSetting], 100, text("Otomatik güncelleme: %s", "Automatic updates: %s"),
+  std::snprintf(values[autoUpdateSetting], 100, text("Açılışta güncelleme denetle: %s", "Check on launch: %s"),
                 cfg.autoUpdate ? text("Açık", "On") : text("Kapalı", "Off"));
+  std::snprintf(values[manualUpdateSetting], 100, "%s", text("Şimdi güncelleme denetle", "Check for updates now"));
   std::snprintf(values[controllerCheckSetting], 100, "%s", text("Kontrolcümü test et", "Test my controller"));
   std::snprintf(values[deadzoneSetting], 80, text("Analog ölü bölgesi: %d%%", "Stick deadzone: %d%%"),
                 int(cfg.deadzone * 100 + .5f));
@@ -1618,22 +1835,38 @@ static void drawSettings(float l, float t, float w, bool clutchAvailable) {
   std::snprintf(values[steeringHelpSetting], 100, text("Direksiyon yardımı: %s", "Steering assist: %s"),
                 steeringHelpOptions[unsigned(cfg.steeringHelp)]);
   std::snprintf(values[clutchSetting], 100, "%s", clutchLabel.get(cfg.language));
-  constexpr int visibleRows = 5;
-  const int first = std::clamp(settingRow - 2, tab.first, std::max(tab.first, tab.end - visibleRows));
+  constexpr int visibleRows = 6;
+  const int first = std::clamp(settingRow - visibleRows / 2, tab.first,
+                               std::max(tab.first, tab.end - visibleRows));
+  draw->PushClipRect({content, t + 62}, {l + w - 18, t + 309}, true);
   for (int row = 0; row < visibleRows && first + row < tab.end; ++row) {
-    int i = first + row;
+    const int i = first + row;
+    const float y = t + 68 + row * 39.f;
+    const ImVec2 a{content, y}, b{l + w - 20, y + 34};
+    overlayTargets[67 + row] = {hitRect(a, b),
+        OverlayClick(int(OverlayClick::SettingsRowFirst) + i)};
+    draw->AddRectFilled(a, b, i == settingRow ? IM_COL32(37, 81, 76, 255)
+                                              : IM_COL32(37, 45, 54, 255), 3);
     if (i == settingRow)
-      draw->AddRectFilled(
-          {l + 14, t + 103 + row * 40.f}, {l + w - 14, t + 139 + row * 40.f},
-          bindingCapture.active() ? IM_COL32(126, 84, 30, 255)
-                                  : IM_COL32(35, 110, 94, 255), 4);
-    label(l + 25, t + 110 + row * 40.f, values[i],
-          i == clutchSetting && !clutchAvailable ? IM_COL32(166, 185, 202, 255) : IM_COL32_WHITE);
+      draw->AddRect(a, b, bindingCapture.active() ? IM_COL32(255, 181, 79, 255)
+                                                 : IM_COL32(119, 244, 207, 255), 3);
+    const auto colour = i == clutchSetting && !clutchAvailable ?
+        IM_COL32(166, 185, 202, 255) : IM_COL32_WHITE;
+    const auto *divider = std::strstr(values[i], ": ");
+    const auto *value = divider ? divider + 2 : nullptr;
+    const float valueWidth = value ? ImGui::CalcTextSize(value).x : 0.f;
+    const float lWidth = ImGui::CalcTextSize(values[i], divider).x;
+    if (value && lWidth + valueWidth + 60 < b.x - a.x) {
+      draw->AddText({a.x + 12, y + 6}, colour, values[i], divider);
+      label(b.x - 12 - valueWidth, y + 6, value, IM_COL32(183, 223, 215, 255));
+    } else
+      label(a.x + 12, y + 6, values[i], colour);
   }
+  draw->PopClipRect();
   if (tab.end - tab.first > visibleRows) {
     char position[32];
     std::snprintf(position, sizeof(position), "%d / %d", settingRow - tab.first + 1, tab.end - tab.first);
-    label(l + w - ImGui::CalcTextSize(position).x - 25, t + 302, position);
+    label(l + w - ImGui::CalcTextSize(position).x - 22, t + 304, position);
   }
   if (bindingCapture.active()) {
     label(l + 22, t + 342,
@@ -1645,7 +1878,7 @@ static void drawSettings(float l, float t, float w, bool clutchAvailable) {
         ? text("L2 + R2 ile iptal et", "Press L2 + R2 to cancel")
         : text("LT + RT ile iptal et", "Press LT + RT to cancel"));
   } else if (settingRow == shortcutSetting || settingRow == controllerCheckSetting ||
-             settingRow == clutchSetting) {
+             settingRow == clutchSetting || settingRow == manualUpdateSetting) {
     char hint[128];
     std::snprintf(hint, sizeof(hint), text("D-pad: seç   %s: aç   %s: iptal", "D-pad: select   %s: open   %s: cancel"),
                   buttonCaption(PadA), buttonCaption(PadB));
@@ -1655,6 +1888,10 @@ static void drawSettings(float l, float t, float w, bool clutchAvailable) {
           ? text("LFS'deki debriyaj ayarını açar.", "Opens LFS's clutch setting.")
           : text("Uygun araçla piste çıkınca durdurma menüsünden aç.",
                  "Open from the pause menu while in a compatible car."));
+    if (settingRow == manualUpdateSetting)
+      label(l + 22, t + 374, updateView == UpdateView::Offer
+          ? text("Güncelleme hazır. Kurmak için ana menüye dön.", "Update available. Return to the main menu to install.")
+          : text("GitHub ön sürümleri de denetlenir.", "Includes GitHub pre-releases."));
   } else {
     char hint[128];
     std::snprintf(hint, sizeof(hint), text("D-pad: seç / değiştir   %s: kaydet   %s: iptal", "D-pad: select / change   %s: save   %s: cancel"),
@@ -1674,8 +1911,8 @@ static void drawSettings(float l, float t, float w, bool clutchAvailable) {
     else if (settingRow == profileSetting)
       std::snprintf(hint, sizeof(hint), text("%s: yeniden adlandır", "%s: rename"), buttonCaption(PadX));
     else if (settingRow == autoUpdateSetting)
-      std::snprintf(hint, sizeof(hint), "%s", text("Açılışta kontrol edilir, oyun kapanınca kurulur.",
-                                                  "Checks on launch and installs after you quit."));
+      std::snprintf(hint, sizeof(hint), "%s", text("Yeni sürüm bulunduğunda yüklemeden önce sorar.",
+                                                  "Asks before downloading and installing."));
     else
       hint[0] = 0;
     label(l + 22, t + 374, hint);
@@ -1791,6 +2028,46 @@ static void drawControllerCheck(float l, float t, float w, const ControllerCheck
   else
     std::snprintf(footer, sizeof(footer), text("%s Geri", "%s Back"), buttonCaption(PadB));
   label(l + 22, t + 377, footer, meterMuted);
+}
+
+static void drawUpdate(float width, float height) {
+  const float w = std::min(width - 24, 570.f), h = 194;
+  const float l = (width - w) / 2, t = (height - h) / 2;
+  auto *draw = ImGui::GetForegroundDrawList();
+  draw->AddRectFilled({0, 0}, {width, height}, IM_COL32(0, 0, 0, 105));
+  panel(l, t, l + w, t + h);
+  overlayShield = hitRect({0, 0}, {width, height});
+  label(l + 22, t + 16, text("LfsPad güncellemesi", "LfsPad update"));
+  draw->AddLine({l + 22, t + 47}, {l + w - 22, t + 47}, IM_COL32(255, 181, 79, 255), 2);
+  const bool offer = updateView == UpdateView::Offer;
+  if (offer) {
+    const auto version = std::string("LfsPad ") + updateVersion +
+        text(" yüklenebilir.", " is available.");
+    label(l + 22, t + 62, version.c_str());
+    label(l + 22, t + 91, text("Oyun kurulumdan sonra yeniden açılacak.",
+                               "LFS will reopen after installation."));
+  } else {
+    const char *message = updateView == UpdateView::Checking
+        ? text("GitHub denetleniyor...", "Checking GitHub...")
+        : updateView == UpdateView::Downloading
+        ? text("Paket indiriliyor ve doğrulanıyor...", "Downloading and verifying the package...")
+        : updateView == UpdateView::Current
+        ? text("LfsPad güncel.", "LfsPad is up to date.")
+        : text("Güncelleme tamamlanamadı. Tekrar dene.", "The update could not finish. Try again.");
+    label(l + 22, t + 63, message);
+  }
+  if (updateView == UpdateView::Checking || updateView == UpdateView::Downloading)
+    return;
+  const auto button = [&](int slot, float x, const char *caption, bool focus, OverlayClick action) {
+    const ImVec2 a{x, t + 136}, b{x + 122, t + 172};
+    overlayTargets[slot] = {hitRect(a, b), action};
+    draw->AddRectFilled(a, b, focus ? IM_COL32(36, 104, 90, 255) : IM_COL32(47, 55, 65, 255), 4);
+    label(x + (122 - ImGui::CalcTextSize(caption).x) / 2, t + 142, caption);
+  };
+  button(0, l + w - (offer ? 278 : 144), text("Tamam", "OK"),
+         !offer || updateAccept, OverlayClick::UpdateAccept);
+  if (offer)
+    button(1, l + w - 144, text("Daha sonra", "Later"), !updateAccept, OverlayClick::UpdateLater);
 }
 static void drawMeterButtons(float x, float y, float width,
                              std::uint16_t available, std::uint16_t down,
@@ -2036,7 +2313,8 @@ static bool initialize(IDXGISwapChain *swap) {
   }
   activeSwap = swap;
   loadConfig();
-  checkForUpdate();
+  if (cfg.autoUpdate)
+    startUpdate(false, true);
   log("LfsPad " LFSPAD_VERSION " active: PID=%lu HWND=%p Direct3D11, native table "
       "RVA=28ca20",
       GetCurrentProcessId(), window);
@@ -2078,10 +2356,12 @@ void frame(IDXGISwapChain *swap) {
   auto sim = pollSim();
   const auto replay = replayState();
   const auto modal = *reinterpret_cast<const uintptr_t *>(imageBase + 0x49c298);
-  const bool nativeText = modal == uintptr_t(imageBase + 0x95ec20);
   const bool wasGarageRoot = garageRoot, wasGarageViewer = garageViewer;
   const bool recoveringGarageFocus = garageSkins || garageModal || wasGarageRoot;
   const bool raceMenu = gather(modal, sim.known && sim.mode == 3);
+  const bool nativeText = nativeTextEntry(modsText || modal == uintptr_t(imageBase + 0x95ec20),
+                                          sim.known, sim.flags);
+  gameTextEntry = nativeText;
   if (garageRoot && !recoveringGarageFocus && !wasGarageViewer)
     garageReturnCallback = 0;
   const bool playingReplay = (replay.active || (sim.flags & 2)) &&
@@ -2097,6 +2377,22 @@ void frame(IDXGISwapChain *swap) {
     settings = false;
   }
   bool foreground = GetForegroundWindow() == window;
+  const auto clicked = foreground ? overlayClick : OverlayClick::None;
+  overlayClick = OverlayClick::None;
+  overlayTargets = {};
+  overlayShield = {};
+  const bool safeUpdateMenu = foreground && sim.known && menu && !nativeText &&
+      !(sim.flags & (1 | 2 | 512)) && (mainMenuInitial >= 0 || optionsInitial >= 0);
+  pollUpdate(safeUpdateMenu, GetTickCount64());
+  const bool updateModal = foreground && menu && !nativeText &&
+      ((safeUpdateMenu && (updateView == UpdateView::Offer || updateView == UpdateView::Failed)) ||
+       updateView == UpdateView::Downloading ||
+       (settings && !updateAutomatic && (updateView == UpdateView::Checking ||
+         updateView == UpdateView::Current || updateView == UpdateView::Failed)));
+  static bool wasUpdateModal = false;
+  if (updateModal != wasUpdateModal)
+    blockMenuInput();
+  wasUpdateModal = updateModal;
   // Native menus also poll keyboard state. A down/up in the same call can be
   // missed between frames, so hold generated control keys briefly.
   releaseKeys(!foreground);
@@ -2218,6 +2514,10 @@ void frame(IDXGISwapChain *swap) {
       foreground != wasForeground || connected != wasConnected ||
       oldSlot != activeSlot;
   const bool reset = screenChanged || contextChanged;
+  const bool optionsEntryAvailable = menu && foreground && !nativeText && !rfsCursor &&
+      optionsInitial >= 0 && validMenuRect(optionsExtension);
+  if (!optionsEntryAvailable || reset)
+    optionsEntryFocus = false;
   auto buttons = state.Gamepad.wButtons;
   auto pressed = gate.update(buttons, reset || !foreground || !connected);
   if (reset)
@@ -2285,6 +2585,9 @@ void frame(IDXGISwapChain *swap) {
       (pressed & (settings ? XINPUT_GAMEPAD_START : binding(Menu))) ||
       (diagnostic & (1 << 9));
   const auto &pad = state.Gamepad;
+  const bool fromOptions = !settings && !keyboard && !cursorMode && !nativeButtonAssignment &&
+      optionsEntryAvailable && (clicked == OverlayClick::OptionsTab ||
+           (optionsEntryFocus && confirm && !back && !menuPressed));
   static ControllerCheck controllerCheck;
   static bool controllerCheckOpen = false, controllerCheckDrain = false;
   static ControllerId checkedController = -1;
@@ -2481,6 +2784,7 @@ void frame(IDXGISwapChain *swap) {
   const bool quickAllowed = foreground && !menu && !playingReplay && !recoveryConsumesConfirm &&
       sim.known && !replay.active && (sim.flags & 1) &&
       !(sim.flags & (8 | 16 | 256 | 32768)) && sim.mode == 0 && cfg.quickButton &&
+      quickMasks[cfg.quickButton] != binding(Menu) &&
       (!native || knownPlayStationButtonLayout(nativeVidPid)) &&
       ((connected && singlePad) || cfg.diagnostics);
   const auto quickMask = quickMasks[cfg.quickButton];
@@ -2532,16 +2836,21 @@ void frame(IDXGISwapChain *swap) {
       viewerReady, contextChanged || lostAssignmentFocus,
       quickX != 0 || quickY != 0, pad.bLeftTrigger > 30 || pad.bRightTrigger > 30);
   constexpr unsigned quickButtonBits[]{0, 1u << 6, 1u << 8, 1u << 9};
+  // LFS can bind these XUSB/PlayStation buttons to its own Escape action.
+  // Consume Back and Start before they reach LFS so only our Menu action can
+  // request the race menu. The driving-assignment screen still sees raw input.
+  constexpr unsigned nativeMenuButtons = (1u << 6) | (1u << 7);
   const bool checkTriggersHeld = pad.bLeftTrigger > ControllerCheck::neutralTrigger ||
                                  pad.bRightTrigger > ControllerCheck::neutralTrigger;
   controllerCheckDrain = controllerCheckOpen || (controllerCheckDrain && checkTriggersHeld);
+  const auto nativeMenuFilter = nativeButtonAssignment && !settings ? 0u : nativeMenuButtons;
   const auto quickFilter = (quickAllowed ? quickButtonBits[cfg.quickButton] : 0u) |
                            (quickDrain ? rightStickMask : 0u) |
                            ((settingsChord.draining || controllerCheckDrain) ? triggerAxisMask : 0u);
-  captureQuickInput.store(connected && singlePad && foreground
-                             ? quickFilter | viewerMask |
-                                   (shortcutInput.stickHeld ? leftStickMask : 0u)
-                             : 0u);
+  captureQuickInput.store(connected && foreground
+      ? nativeMenuFilter | (singlePad ? quickFilter | viewerMask |
+          (shortcutInput.stickHeld ? leftStickMask : 0u) : 0u)
+      : 0u);
   static double diagnosticOrbitUntil = 0;
   static double rumblePreviewUntil = 0;
   static ControllerId rumblePreviewSlot = -1;
@@ -2571,6 +2880,26 @@ void frame(IDXGISwapChain *swap) {
     // LFS is listening for a driving button. Do not interpret that same
     // press as a menu action, and wait for the opening press to clear.
     blockMenuInput();
+  } else if (updateModal && foreground) {
+    if (updateView == UpdateView::Offer) {
+      if (nav[2] || nav[3])
+        updateAccept = nav[2];
+      if (back || menuPressed || clicked == OverlayClick::UpdateLater ||
+          (confirm && !updateAccept)) {
+        updateView = UpdateView::Idle;
+        blockMenuInput();
+      } else if (clicked == OverlayClick::UpdateAccept || (confirm && updateAccept)) {
+        if (!startUpdate(true, updateAutomatic)) {
+          updateAutomatic = false;
+          updateView = UpdateView::Failed;
+        }
+        blockMenuInput();
+      }
+    } else if ((updateView == UpdateView::Failed || updateView == UpdateView::Current) &&
+               (confirm || back || menuPressed || clicked == OverlayClick::UpdateAccept)) {
+      updateView = UpdateView::Idle;
+      blockMenuInput();
+    }
   } else if (bindingCapture.active()) {
     if (!settings || !foreground || lostAssignmentFocus || !connected ||
         activeSlot != oldSlot || (pad.bLeftTrigger > 160 && pad.bRightTrigger > 160) ||
@@ -2607,10 +2936,15 @@ void frame(IDXGISwapChain *swap) {
         wheel(nav[0] ? WHEEL_DELTA : -WHEEL_DELTA);
     }
   } else if (foreground && !recoveryConsumesConfirm) {
-    if (toggleSettings) {
+    if (toggleSettings || fromOptions) {
       if (settings)
         loadConfig();
       settings = !settings;
+      if (fromOptions) {
+        settingsTab = 0;
+        settingRow = settingsTabs[0].first;
+        optionsEntryFocus = true;
+      }
       blockMenuInput();
       if (cfg.diagnostics)
         log("Settings trigger chord: %s", settings ? "open" : "closed");
@@ -2621,8 +2955,7 @@ void frame(IDXGISwapChain *swap) {
         controllerCheckOpen = false;
         blockMenuInput();
       } else if (keyboard) {
-        simKey("enter");
-        keyboard = manualKeyboard = false;
+        closeGameKeyboard(true);
       } else if (settings) {
         loadConfig();
         settings = false;
@@ -2632,35 +2965,50 @@ void frame(IDXGISwapChain *swap) {
       } else
         simKey("esc");
     }
-    if (menu && !toggleSettings && ((pressed & binding(Keyboard)) || diagnosticKeyboard) &&
+    static bool wasNativeText = false;
+    static uintptr_t keyboardOwner = 0;
+    if (!nativeText || !wasNativeText || modal != keyboardOwner) {
+      dismissedText = false;
+      if (nativeText) {
+        gameKeys = {};
+        gameKeys.row = 1;
+        manualKeyboard = false;
+        keyboard = true;
+        confirm = back = false;
+        blockMenuInput();
+      }
+    }
+    wasNativeText = nativeText;
+    keyboardOwner = modal;
+    if (menu && !fromOptions && !toggleSettings && !menuPressed &&
+        ((pressed & binding(Keyboard)) || diagnosticKeyboard) &&
         !settings) {
       if (keyboard && !diagnosticKeyboard)
         gameKeys.upper = !gameKeys.upper;
       else {
         keyboard = !keyboard;
         manualKeyboard = keyboard;
-        gate.blocked = 0xffff;
+        dismissedText = !keyboard;
+        blockMenuInput();
       }
     }
     if (nativeText && !manualKeyboard && !settings)
-      keyboard = true;
+      keyboard = !dismissedText && (!menuPressed || keyboard);
     if (!nativeText && !manualKeyboard)
       keyboard = false;
     if (!menu) {
       settings = keyboard = manualKeyboard = profileNaming = false;
       cursorMode = false;
     }
-    if (menu && !toggleSettings && !menuPressed) {
+    if (menu && !fromOptions && !toggleSettings && !menuPressed) {
       if (keyboard) {
         moveKeyboard(gameKeys, nav, diagnosticNext);
-        if (confirm)
+        if (selectClickedKey(gameKeys, clicked) || confirm)
           keyAction();
         if (pressed & binding(Secondary))
           localKey(VK_BACK);
-        if (back) {
-          keyboard = manualKeyboard = false;
-          simKey("esc");
-        }
+        if (back)
+          closeGameKeyboard(false);
       } else if (settings && profileNaming) {
         if (back) {
           finishProfileName(false);
@@ -2671,7 +3019,7 @@ void frame(IDXGISwapChain *swap) {
               profileNameDraft.pop_back();
           } else if ((pressed & XINPUT_GAMEPAD_Y) || diagnosticKeyboard) {
             profileKeys.upper = !profileKeys.upper;
-          } else if (confirm) {
+          } else if (selectClickedKey(profileKeys, clicked) || confirm) {
             keyAction();
           }
         }
@@ -2706,9 +3054,21 @@ void frame(IDXGISwapChain *swap) {
             adjustShortcut(nav[2] ? -1 : 1);
         }
       } else if (settings) {
+        const int clickedTab = int(clicked) - int(OverlayClick::SettingsTabFirst);
+        const int clickedRow = int(clicked) - int(OverlayClick::SettingsRowFirst);
+        const auto &currentTab = settingsTabs[settingsTab];
         const bool previousTab = (pressed & XINPUT_GAMEPAD_LEFT_SHOULDER) || (diagnostic & (1u << 10));
         const bool nextTab = (pressed & XINPUT_GAMEPAD_RIGHT_SHOULDER) || (diagnostic & (1u << 11));
-        if (previousTab != nextTab) {
+        if (clickedTab >= 0 && clickedTab < int(std::size(settingsTabs))) {
+          settingsTab = clickedTab;
+          settingRow = settingsTabs[settingsTab].first;
+          blockMenuInput();
+        } else if (clickedRow >= currentTab.first && clickedRow < currentTab.end) {
+          settingRow = clickedRow;
+          confirm = settingRow == manualUpdateSetting || settingRow == controllerCheckSetting ||
+                    settingRow == shortcutSetting || settingRow == clutchSetting;
+          blockMenuInput();
+        } else if (previousTab != nextTab) {
           constexpr int count = int(std::size(settingsTabs));
           settingsTab = (settingsTab + count + (nextTab ? 1 : -1)) % count;
           settingRow = settingsTabs[settingsTab].first;
@@ -2736,6 +3096,12 @@ void frame(IDXGISwapChain *swap) {
         } else if (settingRow == controllerCheckSetting && confirm) {
           rumblePreviewUntil = 0;
           beginControllerCheck();
+        } else if (settingRow == manualUpdateSetting && confirm) {
+          if (updateView != UpdateView::Offer && !updateWorker && !startUpdate(false, false)) {
+            updateAutomatic = false;
+            updateView = UpdateView::Failed;
+          }
+          blockMenuInput();
         } else if (settingRow == shortcutSetting && confirm) {
           shortcutEditDraft = cfg.shortcuts;
           shortcutEditMenu = shortcutScreen == ShortcutScreen::None ? 0 : int(shortcutScreen);
@@ -2777,6 +3143,19 @@ void frame(IDXGISwapChain *swap) {
             }
           }
         }
+      } else if (optionsEntryAvailable && !cursorMode &&
+                 (optionsEntryFocus || (nav[1] && selected == optionsLast))) {
+        if (back) {
+          optionsEntryFocus = false;
+          simKey("esc");
+        } else if (optionsEntryFocus && (nav[0] || nav[3] ||
+                   (pressed & (binding(PreviousTab) | binding(NextTab) | binding(CursorMode))))) {
+          optionsEntryFocus = false;
+          if (nav[3])
+            selected = optionsInitial;
+        } else
+          optionsEntryFocus = true;
+        blockMenuInput();
       } else if (favoriteRoute.favorite != Favorite::None) {
         if (back) {
           releaseMouse();
@@ -2995,7 +3374,7 @@ void frame(IDXGISwapChain *swap) {
           if (diagnosticNext && !items.empty() && scrollTarget < 0)
             selected = (selected + 1) % int(items.size());
         }
-        if (back)
+        if (back && escapeFromBack(menu, raceMenu || (sim.flags & 16), onTrack))
           simKey("esc");
         for (int d : {-1, 1})
           if ((pressed & binding(d < 0 ? PreviousTab : NextTab)) ||
@@ -3200,7 +3579,11 @@ void frame(IDXGISwapChain *swap) {
   wasCollectingInput = collectInput;
   monitorInput.store(collectInput || learnSteering);
   if (foreground && menu) {
-    if (settings && controllerCheckOpen)
+    if (optionsEntryAvailable && !rfsCursor && !updateModal)
+      drawOptionsEntry(optionsEntryFocus);
+    if (updateModal)
+      drawUpdate(width, height);
+    else if (settings && controllerCheckOpen)
       drawControllerCheck(settingsX, settingsY, settingsW, controllerCheck, pad, connected, activeSlot);
     else if (settings && shortcutEditor)
       drawShortcutEditor(settingsX, settingsY, settingsW);
@@ -3221,7 +3604,7 @@ void frame(IDXGISwapChain *swap) {
       }
     }
     else {
-      if (!assigningDrivingButton && !cursorMode && selected >= 0 &&
+      if (!assigningDrivingButton && !cursorMode && !optionsEntryFocus && selected >= 0 &&
           pendingFavorite == Favorite::None && favoriteRoute.favorite == Favorite::None) {
         auto r = items[selected].rect;
         ImGui::GetForegroundDrawList()->AddRect(
@@ -3324,11 +3707,14 @@ void frame(IDXGISwapChain *swap) {
   wasForeground = foreground;
   wasConnected = connected;
   ImGui::Render();
+  auto *drawData = ImGui::GetDrawData();
+  if (!drawData->TotalVtxCount)
+    return;
   ID3D11RenderTargetView *old = nullptr;
   ID3D11DepthStencilView *oldDepth = nullptr;
   context->OMGetRenderTargets(1, &old, &oldDepth);
   context->OMSetRenderTargets(1, &target, nullptr);
-  ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+  ImGui_ImplDX11_RenderDrawData(drawData);
   context->OMSetRenderTargets(1, &old, oldDepth);
   if (old)
     old->Release();
