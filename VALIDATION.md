@@ -2,6 +2,12 @@
 
 0.3.0 ön sürümü aşağıda 0.3.0, 0.3.1 ve 0.3.2 olarak kaydedilen yerel denemelerin son değişikliklerini bir araya getirir. 0.3.1 ve 0.3.2 yerel test etiketleridir.
 
+## LfsPad 0.4.2
+
+- LFS **0.8C39** (32 bit, SHA-256: `B7E3BB23288C907F5060075BCDD9ACCF9B7BB26ED57AD76BBE3A3404DA76E881`) ikilisi için tüm menü, garaj, liste, yerel Seçenekler yaması ve otomatik debriyaj RVA'ları `0.8C38` referansıyla karşılaştırılarak çıkarıldı ve `src/lfs_profile.hpp` içindeki merkezi sürüm profili tablosuna eklendi.
+- Tanınmayan LFS sürümlerinde yerel bellek yamaları ve düğme tablosu okumaları kapatılarak sürüş özellikleri, R3/RFS imleci ve ekran klavyesinin etkin kalması sağlandı.
+- 387 çekirdek kontrolü, sanal kontrolcü testleri ve hem `0.8C38` hem `0.8C39` `LFS.exe` kopyaları üzerinde 68’er kurulum kontrolü geçti. Oyun içi canlı 0.8C39 denemesi kullanıcı başlatmasına bağlıdır.
+
 ## LfsPad 0.4.1
 
 - RFS yüklü LFS 0.8C38’de Seçenekler’den LfsPad sayfası açıldı ve Güncelleme ayarı yerel ok düğmesiyle değiştirildi. RFS sayfası açıldığında kaydedilmemiş değişiklik geri alındı.

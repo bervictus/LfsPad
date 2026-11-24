@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <winsock2.h>
 #include "controllers.hpp"
+#include "lfs_profile.hpp"
 #include "rumble.hpp"
 namespace pad {
 extern HMODULE self;
@@ -29,6 +30,7 @@ inline HMODULE loadSystemLibrary(const wchar_t *name) {
   return LoadLibraryExW(library.c_str(), nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
 }
 void log(const char *fmt, ...);
+const LfsBuildProfile *activeBuildProfile();
 bool supportedBuild();
 void installGraphicsHook();
 void frame(IDXGISwapChain *swap);

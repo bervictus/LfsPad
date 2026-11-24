@@ -1,5 +1,6 @@
 #pragma once
 #include "language.hpp"
+#include "lfs_profile.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -15,7 +16,7 @@ inline constexpr LocalizedText clutchLabel{"Otomatik debriyaj", "Auto clutch"};
 struct ShortcutTarget {
   const wchar_t *id = nullptr;
   LocalizedText label;
-  std::uintptr_t callback = 0;
+  ProfileRva callback = nullptr;
   unsigned type = 0, value = 0;
   Favorite favorite = Favorite::None;
 };
@@ -27,37 +28,42 @@ struct ShortcutMenu {
   int count = 0;
   // Index zero is disabled. The next four entries are the default directions.
   std::array<ShortcutTarget, 7> targets{};
-  std::uintptr_t ownerRva = 0;
+  ProfileRva ownerRva = nullptr;
 };
 inline constexpr ShortcutTarget shortcutOff{L"off", {"Kapalı", "Off"}};
 inline constexpr std::array<ShortcutMenu, std::size_t(ShortcutScreen::None)>
     shortcutMenus{{
         {L"MainMenu", {"Ana menü", "Main menu"}, 7,
-         {shortcutOff, {L"solo", {"Tek oyunculu", "Single player"}, 0x84750, 9, 1},
-          {L"options", {"Seçenekler", "Options"}, 0x84750, 9, 3},
-          {L"replays", {"Tekrarlar", "Replays"}, 0x84750, 9, 4},
-          {L"online", {"Çok oyunculu", "Multiplayer"}, 0x84750, 9, 2},
-          {L"training", {"Eğitim", "Training"}, 0x84750, 9, 5},
-          {L"axes-ff", axesLabel, 0, 0, 0, Favorite::Axes}}},
+         {shortcutOff, {L"solo", {"Tek oyunculu", "Single player"}, &LfsBuildProfile::mainMenuCallback, 9, 1},
+          {L"options", {"Seçenekler", "Options"}, &LfsBuildProfile::mainMenuCallback, 9, 3},
+          {L"replays", {"Tekrarlar", "Replays"}, &LfsBuildProfile::mainMenuCallback, 9, 4},
+          {L"online", {"Çok oyunculu", "Multiplayer"}, &LfsBuildProfile::mainMenuCallback, 9, 2},
+          {L"training", {"Eğitim", "Training"}, &LfsBuildProfile::mainMenuCallback, 9, 5},
+          {L"axes-ff", axesLabel, nullptr, 0, 0, Favorite::Axes}}},
         {L"SinglePlayer", {"Tek oyunculu hazırlık", "Single-player setup"}, 5,
-         {shortcutOff, {L"garage", {"Garaj", "Garage"}, 0xac200, 4, 2},
-          {L"go", {"Yürü", "Go"}, 0xac0c0, 3, 0}, {L"track", {"Pist", "Track"}, 0xac200, 4, 3},
-          {L"driver", {"Sürücü", "Driver"}, 0xac200, 4, 4}}},
+         {shortcutOff, {L"garage", {"Garaj", "Garage"}, &LfsBuildProfile::singlePlayerNavCallback, 4, 2},
+          {L"go", {"Yürü", "Go"}, &LfsBuildProfile::singlePlayerGoCallback, 3, 0},
+          {L"track", {"Pist", "Track"}, &LfsBuildProfile::singlePlayerNavCallback, 4, 3},
+          {L"driver", {"Sürücü", "Driver"}, &LfsBuildProfile::singlePlayerNavCallback, 4, 4}}},
         {L"Garage", {"Garaj", "Garage"}, 7,
          {shortcutOff, {L"setups", {"Ayar listesi", "Setups"}},
-          {L"ok", {"Tamam", "OK"}, 0xb3e00, 3, 1}, {L"colours", {"Renkler", "Colours"}, 0x141220, 0, 1},
-          {L"viewer", {"Görüntüleyici", "Viewer"}, 0xb1780, 0, 1},
-          {L"skins", {"Kaplama seç", "Select skin"}, 0xb5740, 0, 0},
-          {L"skin-list", skinListLabel, 0, 0, 0, Favorite::Skins}}},
+          {L"ok", {"Tamam", "OK"}, &LfsBuildProfile::garageOkCallback, 3, 1},
+          {L"colours", {"Renkler", "Colours"}, &LfsBuildProfile::garageTabCallback, 0, 1},
+          {L"viewer", {"Görüntüleyici", "Viewer"}, &LfsBuildProfile::garageViewerCallback, 0, 1},
+          {L"skins", {"Kaplama seç", "Select skin"}, &LfsBuildProfile::garageSkinsOpenCallback, 0, 0},
+          {L"skin-list", skinListLabel, nullptr, 0, 0, Favorite::Skins}}},
         {L"Options", {"Seçenekler", "Options"}, 5,
-         {shortcutOff, {L"controls", {"Kontroller", "Controls"}, 0x111760, 4, 7},
-          {L"ok", {"Tamam", "OK"}, 0x111760, 3, 0}, {L"display", {"Ekran", "Display"}, 0x111760, 4, 2},
-          {L"graphics", {"Grafik", "Graphics"}, 0x111760, 4, 3}}, 0x49129c},
+         {shortcutOff, {L"controls", {"Kontroller", "Controls"}, &LfsBuildProfile::optionsNativeSelect, 4, 7},
+          {L"ok", {"Tamam", "OK"}, &LfsBuildProfile::optionsNativeSelect, 3, 0},
+          {L"display", {"Ekran", "Display"}, &LfsBuildProfile::optionsNativeSelect, 4, 2},
+          {L"graphics", {"Grafik", "Graphics"}, &LfsBuildProfile::optionsNativeSelect, 4, 3}},
+         &LfsBuildProfile::optionsWindow},
         {L"RaceMenu", {"Durdurma menüsü", "Pause menu"}, 6,
-         {shortcutOff, {L"resume", {"Devam et", "Resume"}, 0x8e310, 5, 0},
-          {L"pit", {"Pit", "Pit"}, 0x8e310, 5, 2}, {L"options", {"Seçenekler", "Options"}, 0x8e310, 5, 1},
-          {L"replay", {"Tekrarlamayı göster", "Show replay"}, 0x8e310, 5, 3},
-          {L"axes-ff", axesLabel, 0, 0, 0, Favorite::Axes}}},
+         {shortcutOff, {L"resume", {"Devam et", "Resume"}, &LfsBuildProfile::raceMenuCallback, 5, 0},
+          {L"pit", {"Pit", "Pit"}, &LfsBuildProfile::raceMenuCallback, 5, 2},
+          {L"options", {"Seçenekler", "Options"}, &LfsBuildProfile::raceMenuCallback, 5, 1},
+          {L"replay", {"Tekrarlamayı göster", "Show replay"}, &LfsBuildProfile::raceMenuCallback, 5, 3},
+          {L"axes-ff", axesLabel, nullptr, 0, 0, Favorite::Axes}}},
     }};
 using ShortcutMappings = std::array<ShortcutDirections, shortcutMenus.size()>;
 

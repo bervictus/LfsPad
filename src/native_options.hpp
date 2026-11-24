@@ -1,9 +1,10 @@
 #pragma once
 #include "core.hpp"
+#include "lfs_profile.hpp"
 #include <cstdint>
 
 namespace pad {
-// The menu descriptor layout of the verified LFS 0.8C38 executable.
+// The menu descriptor layout of the verified 32-bit LFS executables.
 struct NativeItem {
   Rect rect;
   unsigned value, text, extra, style;
@@ -17,7 +18,7 @@ enum Action : unsigned {
   None, Save, Cancel, SelectTab = 10, SelectRow = 20,
   Decrease = 60, Increase = 100, Assign = 140
 };
-bool install(unsigned char *image);
+bool install(unsigned char *image, const LfsBuildProfile &profile);
 bool canOpen();
 bool active();
 void open();

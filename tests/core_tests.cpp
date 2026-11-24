@@ -1,5 +1,6 @@
 #include "core.hpp"
 #include "controller_check.hpp"
+#include "lfs_profile.hpp"
 #include "player_profiles.hpp"
 #include "insim_packets.hpp"
 #include <limits>
@@ -914,5 +915,47 @@ int main() {
         "axes resume independently when released");
   check(view.update(false, false, true, true) == 0,
         "fresh movement outside the viewer passes through");
+  const auto *matchedProfile = findLfsProfile(lfsProfiles[0].sha256);
+  check(matchedProfile == &lfsProfiles[0] &&
+            std::string(matchedProfile->version) == "0.8C38" &&
+            matchedProfile->buttonCount == 0x28c994 &&
+            matchedProfile->buttonTable == 0x28ca20 &&
+            matchedProfile->modal == 0x49c298 &&
+            matchedProfile->optionsWindow == 0x49129c &&
+            matchedProfile->mainMenuCallback == 0x84750 &&
+            matchedProfile->raceMenuCallback == 0x8e310,
+        "central build profile resolves all verified 0.8C38 RVAs");
+  const auto *matched08C39 = findLfsProfile(lfsProfiles[1].sha256);
+  check(matched08C39 == &lfsProfiles[1] &&
+            std::string(matched08C39->version) == "0.8C39" &&
+            matched08C39->buttonCount == 0x28c994 &&
+            matched08C39->buttonTable == 0x28ca20 &&
+            matched08C39->modal == 0x49c298 &&
+            matched08C39->nativeTextDialog == 0x95ec40 &&
+            matched08C39->optionsWindow == 0x49129c &&
+            matched08C39->optionsRender == 0x111600 &&
+            matched08C39->optionsRenderOperand == 0x111572 &&
+            matched08C39->optionsSelect == 0x111b70 &&
+            matched08C39->optionsSelectOperand == 0x11165e &&
+            matched08C39->mainMenuCallback == 0x084d80 &&
+            matched08C39->raceMenuCallback == 0x08e940 &&
+            matched08C39->autoClutchValue == 0x2805bc,
+        "central build profile resolves all verified 0.8C39 RVAs");
+  auto wrongDigest = lfsProfiles[0].sha256;
+  wrongDigest[0] ^= 0xff;
+  check(findLfsProfile(wrongDigest) == nullptr,
+        "unrecognized executable digest returns no profile");
+  check(resolveProfileRva(lfsProfiles[0], nullptr) == 0,
+        "null profile member resolves to zero");
+  for (const auto &profile : lfsProfiles) {
+    for (const auto &menu : shortcutMenus) {
+      check(!menu.ownerRva || resolveProfileRva(profile, menu.ownerRva) != 0,
+            "shortcut menu owner member resolves to a non-zero RVA");
+      for (int i = 0; i < menu.count; ++i)
+        check(!menu.targets[i].callback ||
+                  resolveProfileRva(profile, menu.targets[i].callback) != 0,
+              "shortcut target callback member resolves to a non-zero RVA");
+    }
+  }
   std::cout << checks << " checks passed\n";
 }

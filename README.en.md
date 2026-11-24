@@ -2,7 +2,7 @@
 
 [Türkçe](README.md) · **English**
 
-Use a controller to start a race, change your setup in the garage and get back on track in Live for Speed. LfsPad loads with the game and works with **LFS 0.8C38 for 32-bit Windows**.
+Use a controller to start a race, change your setup in the garage and get back on track in Live for Speed. LfsPad loads with the game and works with **LFS 0.8C38 and 0.8C39 for 32-bit Windows**.
 
 Version 0.3.0 brings a controller steering assist inspired by LFS’s stabilised keyboard mode. You keep full lock when parking, and the assist can countersteer during a slide. The steering range opens up when you turn the stick to catch the slide yourself. [Controller guide](CONTROLS.md)
 

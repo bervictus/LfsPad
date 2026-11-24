@@ -24,16 +24,8 @@ struct Window {
 static_assert(sizeof(Window) == 0x28 && offsetof(Window, pendingPage) == 0x24);
 
 constexpr unsigned settingsPage = 11;
-constexpr uintptr_t optionsWindowRva = 0x49129c, optionsRootRva = 0x491298;
-constexpr uintptr_t renderRva = 0x1112b0, selectRva = 0x111820;
-constexpr uintptr_t renderOperandRva = 0x111222, selectOperandRva = 0x11130e;
-constexpr uintptr_t nativeSelectRva = 0x111760;
-constexpr uintptr_t selectedRva = 0x2af52c, displayedRva = 0x2af530;
-constexpr uintptr_t modalRva = 0x49c298;
-constexpr uintptr_t buttonCountRva = 0x28c994, buttonTableRva = 0x28ca20;
-constexpr uintptr_t closeRva = 0x128ab0;
-constexpr uintptr_t keyRva = 0x12ba40, mouseRva = 0x12baf0;
 unsigned char *base = nullptr;
+const LfsBuildProfile *build = nullptr;
 Window page{};
 unsigned previousPage = 1;
 bool installed = false, openRequested = false;
@@ -48,9 +40,9 @@ template <typename T> T &data(uintptr_t offset) {
 template <typename T> T function(uintptr_t offset) {
   return reinterpret_cast<T>(base + offset);
 }
-Window *owner() { return reinterpret_cast<Window *>(base + optionsWindowRva); }
+Window *owner() { return reinterpret_cast<Window *>(base + build->optionsWindow); }
 bool optionsOpen() {
-  return installed && data<Window *>(optionsRootRva) == owner() && owner()->active;
+  return installed && build && data<Window *>(build->optionsRoot) == owner() && owner()->active;
 }
 void __cdecl onButton(Window *window, unsigned, unsigned value) {
   if (window == &page && page.active)
@@ -63,7 +55,7 @@ void __cdecl selectCategory(Window *window, unsigned, unsigned) {
 void addButton(Window *window, Rect rect, const char *text, Event click, unsigned value,
                bool highlighted, unsigned type) {
   constexpr int capacity = 1024;
-  auto &count = data<int>(buttonCountRva);
+  auto &count = data<int>(build->buttonCount);
   if (count < 0 || count >= capacity || captionCount >= captions.size())
     return;
   // Text is kept alive between drawing and LFS processing the next click.
@@ -84,18 +76,19 @@ void addButton(Window *window, Rect rect, const char *text, Event click, unsigne
   } else {
     caption[0] = '\0';
   }
-  auto &item = data<NativeItem[capacity]>(buttonTableRva)[count++];
+  auto &item = data<NativeItem[capacity]>(build->buttonTable)[count++];
   item = {};
   item.rect = rect;
   item.value = value;
   item.text = reinterpret_cast<uintptr_t>(caption.data());
   item.type = static_cast<unsigned char>(type);
   item.codepage = static_cast<unsigned char>(codepage);
-  const uintptr_t palette = type == 10 ? 0x43b378 : highlighted ? 0x43b330 : 0x43b380;
+  const uintptr_t palette = type == 10 ? build->paletteHeader
+                          : highlighted ? build->selectedColour : build->paletteNormal;
   item.colour = reinterpret_cast<uintptr_t>(base + palette);
   item.owner = reinterpret_cast<uintptr_t>(window);
   item.callback = reinterpret_cast<uintptr_t>(click);
-  function<void (__fastcall *)(NativeItem *)>(0x2ce80)(&item);
+  function<void (__fastcall *)(NativeItem *)>(build->buttonRegister)(&item);
 }
 Window *__cdecl drawPage(Window *window) {
   if (!window->active)
@@ -108,14 +101,14 @@ void __cdecl pageKey(Window *window, unsigned key, unsigned value) {
   if (key == VK_ESCAPE)
     action.store(Cancel);
   else
-    function<Event>(keyRva)(window, key, value);
+    function<Event>(build->windowKey)(window, key, value);
 }
 void __fastcall openChild(Window *window) {
   if (window != owner() || window->pendingPage != settingsPage) {
-    function<void (__fastcall *)(Window *)>(selectRva)(window);
+    function<void (__fastcall *)(Window *)>(build->optionsSelect)(window);
     return;
   }
-  const auto selected = data<unsigned>(selectedRva);
+  const auto selected = data<unsigned>(build->optionsSelected);
   if (selected >= 1 && selected < settingsPage)
     previousPage = selected;
   page = {};
@@ -126,11 +119,11 @@ void __fastcall openChild(Window *window) {
   page.theme = window->theme;
   page.render = drawPage;
   page.key = pageKey;
-  page.mouse = function<Event>(mouseRva);
-  page.close = function<Close>(closeRva);
-  function<void (__fastcall *)(Window *, Window *)>(0x1289a0)(window, &page);
-  data<Window *>(modalRva) = &page;
-  data<unsigned>(selectedRva) = data<unsigned>(displayedRva) = settingsPage;
+  page.mouse = function<Event>(build->windowMouse);
+  page.close = function<Close>(build->windowClose);
+  function<void (__fastcall *)(Window *, Window *)>(build->windowAttachChild)(window, &page);
+  data<Window *>(build->modal) = &page;
+  data<unsigned>(build->optionsSelected) = data<unsigned>(build->optionsDisplayed) = settingsPage;
   window->pendingPage = 0;
   log("Native LFS Options opened LfsPad");
 }
@@ -144,21 +137,21 @@ Window *__cdecl drawOptions(Window *window) {
   }
   if (!window->active)
     openRequested = false;
-  const int first = data<int>(buttonCountRva);
-  auto *result = function<Renderer>(renderRva)(window);
-  if (!result && data<unsigned>(selectedRva) == settingsPage)
-    data<unsigned>(selectedRva) = previousPage;
+  const int first = data<int>(build->buttonCount);
+  auto *result = function<Renderer>(build->optionsRender)(window);
+  if (!result && data<unsigned>(build->optionsSelected) == settingsPage)
+    data<unsigned>(build->optionsSelected) = previousPage;
   if (!result || window != owner() || first < 0)
     return result;
 
-  const auto &buttons = data<NativeItem[1024]>(buttonTableRva);
-  const int count = std::min(data<int>(buttonCountRva), 1024);
+  const auto &buttons = data<NativeItem[1024]>(build->buttonTable);
+  const int count = std::min(data<int>(build->buttonCount), 1024);
   Rect category{}, extra{};
   for (int i = first; i < count; ++i) {
     const auto &item = buttons[i];
     if (item.owner != reinterpret_cast<uintptr_t>(window) || item.type != 4)
       continue;
-    if (item.value == 9 && item.callback == reinterpret_cast<uintptr_t>(base + nativeSelectRva))
+    if (item.value == 9 && item.callback == reinterpret_cast<uintptr_t>(base + build->optionsNativeSelect))
       category = item.rect;
     if (item.value == 10)
       extra = item.rect; // RFS appends its own category here.
@@ -196,28 +189,47 @@ std::uint32_t operandAt(uintptr_t offset) {
   std::memcpy(&value, base + offset, sizeof(value));
   return value;
 }
+bool hasRequiredProfile(const LfsBuildProfile &profile) {
+  return profile.optionsWindow && profile.optionsRoot && profile.optionsRender &&
+         profile.optionsSelect && profile.optionsRenderOperand &&
+         profile.optionsSelectOperand && profile.optionsNativeSelect &&
+         profile.optionsSelected && profile.optionsDisplayed &&
+         profile.modal && profile.buttonCount && profile.buttonTable &&
+         profile.windowClose && profile.windowKey && profile.windowMouse &&
+         profile.windowAttachChild && profile.buttonRegister &&
+         profile.paletteHeader && profile.selectedColour && profile.paletteNormal;
+}
 } // namespace
 
-bool install(unsigned char *image) {
+bool install(unsigned char *image, const LfsBuildProfile &profile) {
   if (installed)
     return true;
+  if (!hasRequiredProfile(profile))
+    return false;
   base = image;
-  const auto originalRender = reinterpret_cast<uintptr_t>(base + renderRva);
-  const auto originalSelect = selectRva - (selectOperandRva + 4);
-  if (base[renderOperandRva - 1] != 0x68 || base[selectOperandRva - 1] != 0xe8 ||
-      operandAt(renderOperandRva) != originalRender ||
-      operandAt(selectOperandRva) != originalSelect)
+  build = &profile;
+  const auto originalRender = reinterpret_cast<uintptr_t>(base + build->optionsRender);
+  const auto originalSelect = build->optionsSelect - (build->optionsSelectOperand + 4);
+  if (base[build->optionsRenderOperand - 1] != 0x68 ||
+      base[build->optionsSelectOperand - 1] != 0xe8 ||
+      operandAt(build->optionsRenderOperand) != originalRender ||
+      operandAt(build->optionsSelectOperand) != originalSelect) {
+    build = nullptr;
     return false;
+  }
   const auto relative = reinterpret_cast<uintptr_t>(openChild) -
-                        reinterpret_cast<uintptr_t>(base + selectOperandRva + 4);
-  if (!replaceOperand(selectOperandRva, relative))
+                        reinterpret_cast<uintptr_t>(base + build->optionsSelectOperand + 4);
+  if (!replaceOperand(build->optionsSelectOperand, relative)) {
+    build = nullptr;
     return false;
-  if (!replaceOperand(renderOperandRva, reinterpret_cast<uintptr_t>(drawOptions))) {
-    replaceOperand(selectOperandRva, originalSelect);
+  }
+  if (!replaceOperand(build->optionsRenderOperand, reinterpret_cast<uintptr_t>(drawOptions))) {
+    replaceOperand(build->optionsSelectOperand, originalSelect);
+    build = nullptr;
     return false;
   }
   installed = true;
-  if (optionsOpen() && owner()->render == function<Renderer>(renderRva))
+  if (optionsOpen() && owner()->render == function<Renderer>(build->optionsRender))
     owner()->render = drawOptions;
   return true;
 }
@@ -226,7 +238,7 @@ bool active() { return optionsOpen() && owner()->child == &page && page.active; 
 void open() { openRequested = canOpen(); }
 void leave() {
   if (active())
-    function<Event>(nativeSelectRva)(owner(), 0, previousPage);
+    function<Event>(build->optionsNativeSelect)(owner(), 0, previousPage);
 }
 bool isCategory(const NativeItem &item) {
   return installed && item.owner == reinterpret_cast<uintptr_t>(owner()) &&

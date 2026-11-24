@@ -8,8 +8,9 @@ $gameRoot=[IO.Path]::GetFullPath($GameDirectory).TrimEnd('\')
 $lock=Open-Installation $gameRoot
 try {
     if (![IO.File]::Exists("$gameRoot\LFS.exe")) { throw 'LFS.exe not found.' }
-    if ((Get-FileHash -LiteralPath "$gameRoot\LFS.exe").Hash -ne '77606E57885FEC33CDDABDFD2271D2F181C65806C2D7EC0049654BD5487D8A52') {
-        throw 'Only the verified 0.8C38 executable is supported.'
+    if (!(Get-SupportedGameBuild "$gameRoot\LFS.exe")) {
+        $supported = ($SupportedGameBuilds.Keys -join ', ')
+        throw "Only verified LFS builds ($supported) are supported."
     }
     if (!$DllPath) {
         $DllPath="$PSScriptRoot\..\dxgi.dll"

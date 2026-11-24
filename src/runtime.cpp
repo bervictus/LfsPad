@@ -542,13 +542,15 @@ static void pollUpdate(bool safeToExit, ULONGLONG now) {
       log("LfsPad update verified; sent LFS a clean exit request");
   }
 }
+static bool hasCallback(const NativeItem &item, uintptr_t rva) {
+  return rva && item.callback == uintptr_t(imageBase) + rva;
+}
 static bool validMenuRect(const Rect &r) {
   return std::isfinite(r.l) && std::isfinite(r.t) && std::isfinite(r.r) &&
          std::isfinite(r.b) && r.r - r.l >= .001f && r.b - r.t >= .001f &&
          r.l >= -1.01f && r.r <= 1.01f && r.t >= -1.01f && r.b <= 1.01f;
 }
-static bool gather(uintptr_t modal, bool inGarageMode) {
-  const bool garageContext = garageRoot || garageViewer || garageSkins || garageModal;
+static void clearGatheredState() {
   items.clear();
   list.kind = ListKind::None;
   list.entries.clear();
@@ -570,22 +572,27 @@ static bool gather(uintptr_t modal, bool inGarageMode) {
   pedalCalibration = nativeButtonAssignment = false;
   raceFinishItem = -1;
   raceResumeItem = -1;
+}
+static bool gather(const LfsBuildProfile &profile, uintptr_t modal, bool inGarageMode) {
+  const bool garageContext = garageRoot || garageViewer || garageSkins || garageModal;
+  clearGatheredState();
+  if (!profile.buttonCount || !profile.buttonTable)
+    return false;
   bool raceMenu = false;
-  const int count = *reinterpret_cast<const int *>(imageBase + 0x28c994);
+  const int count = *reinterpret_cast<const int *>(imageBase + profile.buttonCount);
   if (count < 0 || count > 1024)
     return false;
-  auto native = reinterpret_cast<const NativeItem *>(imageBase + 0x28ca20);
-  const auto raceMenuCallback = uintptr_t(imageBase + 0x8e310);
+  auto native = reinterpret_cast<const NativeItem *>(imageBase + profile.buttonTable);
+  const auto raceMenuCallback = profile.raceMenuCallback ? uintptr_t(imageBase + profile.raceMenuCallback) : 0;
   bool viewerLight = false, viewerLod = false;
   for (int i = 0; modal && i < count; ++i) {
     const auto &n = native[i];
     if (n.owner != modal)
       continue;
-    const auto callback = n.callback - uintptr_t(imageBase);
-    garageRoot |= n.type == 0 && callback == 0xb1780 && n.value == 1;
-    garageSkins |= n.type == 0 && callback == 0x13dba0;
-    viewerLight |= n.type == 0 && callback == 0xb2dd0;
-    viewerLod |= n.type == 0 && callback == 0xb2de0;
+    garageRoot |= n.type == 0 && hasCallback(n, profile.garageViewerCallback) && n.value == 1;
+    garageSkins |= n.type == 0 && hasCallback(n, profile.garageSkinsModalCallback);
+    viewerLight |= n.type == 0 && hasCallback(n, profile.garageViewerLightCallback);
+    viewerLod |= n.type == 0 && hasCallback(n, profile.garageViewerLodCallback);
   }
   garageViewer = viewerLight && viewerLod && !garageRoot;
   garageModal = modal && inGarageMode && garageContext &&
@@ -601,7 +608,7 @@ static bool gather(uintptr_t modal, bool inGarageMode) {
         i + 1 < count && validMenuRect(r)) {
       const auto &clear = native[i + 1];
       modsText |= clear.owner == modal && clear.type == 0 &&
-          clear.callback == uintptr_t(imageBase) + 0x4c950 &&
+          hasCallback(clear, profile.modsSearchClearCallback) &&
           (clear.value == 1 || clear.value == 2) &&
           std::abs(r.r - clear.rect.l) < .002f && std::abs(r.t - clear.rect.t) < .002f &&
           std::abs(r.b - clear.rect.b) < .002f;
@@ -612,13 +619,13 @@ static bool gather(uintptr_t modal, bool inGarageMode) {
       continue;
     auto sig = n.callback ^ (n.owner * 16777619u) ^ (unsigned(n.type) << 24) ^
                unsigned(i * 31);
-    if (n.owner == modal && n.callback == uintptr_t(imageBase + 0x84750) &&
+    if (n.owner == modal && hasCallback(n, profile.mainMenuCallback) &&
         n.type == 9 && (n.value == mainMenuSelection ||
                        (n.value == 5 && mainMenuInitial < 0)))
       mainMenuInitial = int(items.size());
     // LFS leaves ISS_GAME set and ISS_DIALOG clear in the race menu. Match
     // visible controls owned by this modal, not merely any driving HUD item.
-    if (n.owner == modal && n.callback == raceMenuCallback) {
+    if (n.owner == modal && raceMenuCallback && n.callback == raceMenuCallback) {
       raceMenu = true;
       if (n.type == 3 && n.value == 5)
         raceFinishItem = int(items.size());
@@ -626,35 +633,35 @@ static bool gather(uintptr_t modal, bool inGarageMode) {
         raceResumeItem = int(items.size());
     }
     ListKind kind = ListKind::None;
-    const auto callback = n.callback - uintptr_t(imageBase);
-    const bool active = n.colour == uintptr_t(imageBase) + 0x43b330;
+    const bool active = profile.selectedColour && n.colour == uintptr_t(imageBase) + profile.selectedColour;
     const bool optionsTab = nativeOptions::isCategory(n) ||
-                           (n.owner == uintptr_t(imageBase) + 0x49129c &&
-                            callback == 0x111760 && n.type == 4 &&
+                           (profile.optionsWindow &&
+                            n.owner == uintptr_t(imageBase) + profile.optionsWindow &&
+                            hasCallback(n, profile.optionsNativeSelect) && n.type == 4 &&
                             n.value >= 1 && n.value <= 9);
     if (optionsTab && (active || optionsInitial < 0))
       optionsInitial = int(items.size());
     // LT+RT is a real pedal input while the native Axes / FF page is active.
-    if (active && n.owner == modal && callback == 0x10aba0 && n.type == 0 &&
-        n.value == 5)
+    if (active && n.owner == modal && hasCallback(n, profile.controlsTabCallback) &&
+        n.type == 0 && n.value == 5)
       pedalCalibration = true;
-    if (active && n.owner == modal && n.type == 0 && callback == 0x10abc0)
+    if (active && n.owner == modal && n.type == 0 && hasCallback(n, profile.controlsAssignCallback))
       nativeButtonAssignment = true;
-    if (garageRoot && n.type == 0 && callback == 0xb1780 && n.value == 1)
+    if (garageRoot && n.type == 0 && hasCallback(n, profile.garageViewerCallback) && n.value == 1)
       garageViewerItem = int(items.size());
-    if (garageRoot && n.type == 0 && callback == 0x141340)
+    if (garageRoot && n.type == 0 && hasCallback(n, profile.garageSkinPrefixCallback))
       garageSkinPrefix = n.text;
-    if (garageRoot && n.type == 0 && callback == 0xb5740 && n.value == 0)
+    if (garageRoot && n.type == 0 && hasCallback(n, profile.garageSkinsOpenCallback) && n.value == 0)
       garageSkinName = n.text;
     if (garageViewer)
       viewerArea.b = std::min(viewerArea.b, r.t);
     ListKind garageKind = ListKind::None;
     if (garageRoot && n.type == 0) {
-      if (callback == 0xb4420 || callback == 0xb4440)
+      if (hasCallback(n, profile.garageSetupCallback1) || hasCallback(n, profile.garageSetupCallback2))
         garageKind = ListKind::Setups;
-      else if (callback == 0xb4650)
+      else if (hasCallback(n, profile.garageColourCallback))
         garageKind = ListKind::Colours;
-    } else if (garageSkins && n.type == 0 && callback == 0x13dbe0) {
+    } else if (garageSkins && n.type == 0 && hasCallback(n, profile.garageSkinsRowCallback)) {
       garageKind = ListKind::Skins;
     }
     if (garageKind != ListKind::None) {
@@ -664,7 +671,7 @@ static bool gather(uintptr_t modal, bool inGarageMode) {
     }
     // A preset is drawn as a marker and a swatch with the same action.
     bool selectedPreset = false;
-    if (garageRoot && n.type == 2 && callback == 0xb4640) {
+    if (garageRoot && n.type == 2 && hasCallback(n, profile.garagePresetCallback)) {
       if (n.style != 1 || i == 0)
         continue;
       const auto &marker = native[i - 1];
@@ -672,13 +679,13 @@ static bool gather(uintptr_t modal, bool inGarageMode) {
           marker.value != n.value || marker.style != 0)
         continue;
       r.l = marker.rect.l >= -1.01f && marker.rect.l < r.l ? marker.rect.l : r.l;
-      selectedPreset = marker.colour == uintptr_t(imageBase + 0x43b330);
+      selectedPreset = profile.selectedColour && marker.colour == uintptr_t(imageBase + profile.selectedColour);
     }
-    if (callback == 0x1372d0 && n.type == 0 && r.r - r.l > .2f)
+    if (hasCallback(n, profile.replaysListCallback) && n.type == 0 && r.r - r.l > .2f)
       kind = ListKind::Replays; // Use the name column, which shares a callback.
-    if (callback == 0xa6d60 && n.type == 0)
+    if (hasCallback(n, profile.serversListCallback) && n.type == 0)
       kind = ListKind::Servers;
-    if (callback == 0xf3f60 && n.type == 0)
+    if (hasCallback(n, profile.modsListCallback) && n.type == 0)
       kind = ListKind::Mods;
     if (kind != ListKind::None &&
         (listOwner == 0 || (listOwner == n.owner && list.kind == kind))) {
@@ -688,7 +695,7 @@ static bool gather(uintptr_t modal, bool inGarageMode) {
     }
     items.push_back(
         {r, i, sig, n.type,
-         optionsTab || (callback == 0x141220 && n.type == 0),
+         optionsTab || (hasCallback(n, profile.garageTabCallback) && n.type == 0),
          selectedPreset || active});
   }
   for (auto &view : garageLists) {
@@ -956,15 +963,18 @@ static bool moveList(Direction direction) {
   beginListScroll(view.first + step, slot, view.kind);
   return true;
 }
-static bool isGarageColourSlider(const Item &item) {
+static bool isGarageColourSlider(const LfsBuildProfile &profile, const Item &item) {
   if ((!garageRoot && !garageViewer) ||
-      (item.nativeType != 38 && item.nativeType != 39))
+      (item.nativeType != 38 && item.nativeType != 39) ||
+      !profile.buttonTable)
     return false;
-  const auto *native = reinterpret_cast<const NativeItem *>(imageBase + 0x28ca20);
-  const auto callback = native[item.id].callback - uintptr_t(imageBase);
-  return callback == 0xb4870 || callback == 0xb4920 || callback == 0xb2e00;
+  const auto *native = reinterpret_cast<const NativeItem *>(imageBase + profile.buttonTable);
+  const auto &entry = native[item.id];
+  return hasCallback(entry, profile.garageColourSlider1) ||
+         hasCallback(entry, profile.garageColourSlider2) ||
+         hasCallback(entry, profile.garageViewerSlider);
 }
-static int garageEntryFocus() {
+static int garageEntryFocus(const LfsBuildProfile &profile) {
   if (garageSkins) {
     const auto &view = garageList(ListKind::Skins);
     for (const auto &row : view.entries)
@@ -975,7 +985,7 @@ static int garageEntryFocus() {
       return view.entries.front().item;
     return -1;
   }
-  const auto *native = reinterpret_cast<const NativeItem *>(imageBase + 0x28ca20);
+  const auto *native = reinterpret_cast<const NativeItem *>(imageBase + profile.buttonTable);
   for (int i = 0; i < int(items.size()); ++i) {
     const auto &n = native[items[i].id];
     if (n.callback == garageReturnCallback && n.type == garageReturnType &&
@@ -987,7 +997,8 @@ static int garageEntryFocus() {
       return row.item;
   return -1;
 }
-static int findShortcutItem(const ShortcutTarget &target, uintptr_t owner) {
+static int findShortcutItem(const LfsBuildProfile &profile, const ShortcutTarget &target,
+                            uintptr_t owner) {
   if (!target.callback) {
     const auto &setups = garageList(ListKind::Setups).entries;
     const auto active = std::find_if(setups.begin(), setups.end(),
@@ -995,10 +1006,13 @@ static int findShortcutItem(const ShortcutTarget &target, uintptr_t owner) {
     return active != setups.end() ? active->item
            : setups.empty() ? -1 : setups.front().item;
   }
-  const auto *native = reinterpret_cast<const NativeItem *>(imageBase + 0x28ca20);
+  const auto callbackRva = resolveProfileRva(profile, target.callback);
+  if (!callbackRva || !profile.buttonTable)
+    return -1;
+  const auto *native = reinterpret_cast<const NativeItem *>(imageBase + profile.buttonTable);
   for (int i = 0; i < int(items.size()); ++i) {
     const auto &n = native[items[i].id];
-    if (n.owner == owner && n.callback == uintptr_t(imageBase) + target.callback &&
+    if (n.owner == owner && hasCallback(n, callbackRva) &&
         n.type == target.type && n.value == target.value)
       return i;
   }
@@ -1007,7 +1021,8 @@ static int findShortcutItem(const ShortcutTarget &target, uintptr_t owner) {
 static const ShortcutMenu &shortcutMenu(ShortcutScreen screen) {
   return shortcutMenus[std::size_t(screen)];
 }
-static ShortcutScreen findShortcutScreen(uintptr_t modal, bool raceMenu) {
+static ShortcutScreen findShortcutScreen(const LfsBuildProfile &profile, uintptr_t modal,
+                                         bool raceMenu) {
   if (!modal)
     return ShortcutScreen::None;
   if (mainMenuInitial >= 0)
@@ -1019,17 +1034,19 @@ static ShortcutScreen findShortcutScreen(uintptr_t modal, bool raceMenu) {
   if (garageRoot)
     return ShortcutScreen::Garage;
   const auto &garage = shortcutMenu(ShortcutScreen::SinglePlayer).targets[1];
-  return findShortcutItem(garage, modal) >= 0 ? ShortcutScreen::SinglePlayer
-                                              : ShortcutScreen::None;
+  return findShortcutItem(profile, garage, modal) >= 0 ? ShortcutScreen::SinglePlayer
+                                                       : ShortcutScreen::None;
 }
-static constexpr ShortcutTarget axesTab{L"axes", axesLabel, 0x10aba0, 0, 5};
-static constexpr ShortcutTarget driverTab{L"driver", {"Sürücü", "Driver"}, 0x111760, 4, 6};
+static constexpr ShortcutTarget axesTab{L"axes", axesLabel, &LfsBuildProfile::controlsTabCallback, 0, 5};
+static constexpr ShortcutTarget driverTab{L"driver", {"Sürücü", "Driver"}, &LfsBuildProfile::optionsNativeSelect, 4, 6};
 
-static int nativeClutchItem(uintptr_t modal) {
-  // 0.8C38 exposes this toggle only when the current car and gearbox support it.
-  const ShortcutTarget toggle{L"auto-clutch", clutchLabel, 0xc8eb0, 23,
-                              unsigned(uintptr_t(imageBase) + 0x2805b8)};
-  return findShortcutItem(toggle, modal);
+static int nativeClutchItem(const LfsBuildProfile &profile, uintptr_t modal) {
+  if (!profile.autoClutchCallback || !profile.autoClutchValue)
+    return -1;
+  // Verified builds expose this toggle only when the current car and gearbox support it.
+  const ShortcutTarget toggle{L"auto-clutch", clutchLabel, &LfsBuildProfile::autoClutchCallback, 23,
+                              unsigned(uintptr_t(imageBase) + profile.autoClutchValue)};
+  return findShortcutItem(profile, toggle, modal);
 }
 
 static bool editableGarageColourSelected() {
@@ -1038,30 +1055,33 @@ static bool editableGarageColourSelected() {
                      [](const ListItem &colour) { return items[colour.item].active; });
 }
 
-static int favoriteItem(FavoritePage destination, ShortcutScreen source, uintptr_t modal) {
+static int favoriteItem(const LfsBuildProfile &profile, FavoritePage destination,
+                        ShortcutScreen source, uintptr_t modal) {
   switch (destination) {
   case FavoritePage::Options:
     if (source == ShortcutScreen::Main)
-      return findShortcutItem(shortcutMenu(source).targets[2], modal);
+      return findShortcutItem(profile, shortcutMenu(source).targets[2], modal);
     if (source == ShortcutScreen::Race)
-      return findShortcutItem(shortcutMenu(source).targets[3], modal);
+      return findShortcutItem(profile, shortcutMenu(source).targets[3], modal);
     break;
   case FavoritePage::Controls: {
     const auto &menu = shortcutMenu(ShortcutScreen::Options);
-    return findShortcutItem(menu.targets[1], uintptr_t(imageBase) + menu.ownerRva);
+    const auto ownerRva = resolveProfileRva(profile, menu.ownerRva);
+    return ownerRva ? findShortcutItem(profile, menu.targets[1], uintptr_t(imageBase) + ownerRva) : -1;
   }
-  case FavoritePage::Driver:
-    return findShortcutItem(driverTab, uintptr_t(imageBase) +
-                                      shortcutMenu(ShortcutScreen::Options).ownerRva);
+  case FavoritePage::Driver: {
+    const auto ownerRva = resolveProfileRva(profile, shortcutMenu(ShortcutScreen::Options).ownerRva);
+    return ownerRva ? findShortcutItem(profile, driverTab, uintptr_t(imageBase) + ownerRva) : -1;
+  }
   case FavoritePage::Axes:
-    return findShortcutItem(axesTab, modal);
+    return findShortcutItem(profile, axesTab, modal);
   case FavoritePage::Colours:
     if (editableGarageColourSelected())
-      return findShortcutItem(shortcutMenu(ShortcutScreen::Garage).targets[3], modal);
+      return findShortcutItem(profile, shortcutMenu(ShortcutScreen::Garage).targets[3], modal);
     break;
   case FavoritePage::Skins:
     if (editableGarageColourSelected())
-      return findShortcutItem(shortcutMenu(ShortcutScreen::Garage).targets[5], modal);
+      return findShortcutItem(profile, shortcutMenu(ShortcutScreen::Garage).targets[5], modal);
     break;
   default:
     break;
@@ -1069,9 +1089,9 @@ static int favoriteItem(FavoritePage destination, ShortcutScreen source, uintptr
   return -1;
 }
 
-static FavoritePage favoritePage(Favorite favorite, ShortcutScreen source,
-                                 uintptr_t sourceOwner, ShortcutScreen screen,
-                                 uintptr_t modal) {
+static FavoritePage favoritePage(const LfsBuildProfile &profile, Favorite favorite,
+                                 ShortcutScreen source, uintptr_t sourceOwner,
+                                 ShortcutScreen screen, uintptr_t modal) {
   if (items.empty())
     return FavoritePage::Transition;
   if (favorite == Favorite::Skins) {
@@ -1079,7 +1099,7 @@ static FavoritePage favoritePage(Favorite favorite, ShortcutScreen source,
       return FavoritePage::Skins;
     if (screen != ShortcutScreen::Garage || modal != sourceOwner)
       return FavoritePage::Other;
-    const int colours = favoriteItem(FavoritePage::Colours, source, modal);
+    const int colours = favoriteItem(profile, FavoritePage::Colours, source, modal);
     return colours >= 0 && items[colours].active ? FavoritePage::Colours
                                                  : FavoritePage::Garage;
   }
@@ -1088,40 +1108,44 @@ static FavoritePage favoritePage(Favorite favorite, ShortcutScreen source,
   // Options draws the current page before its fixed-owner category bar. The
   // modal points to the page itself and changes when a category is selected.
   if (screen != ShortcutScreen::Options || optionsInitial < 0 ||
-      !items[optionsInitial].active)
+      !items[optionsInitial].active || !profile.buttonTable)
     return FavoritePage::Other;
-  const auto *native = reinterpret_cast<const NativeItem *>(imageBase + 0x28ca20);
+  const auto *native = reinterpret_cast<const NativeItem *>(imageBase + profile.buttonTable);
   const bool ownsPage = std::any_of(items.begin(), items.begin() + optionsInitial,
       [&](const Item &item) { return native[item.id].owner == modal; });
   if (!ownsPage)
     return FavoritePage::Other;
   if (favorite == Favorite::Clutch) {
-    const int driver = favoriteItem(FavoritePage::Driver, source, modal);
+    const int driver = favoriteItem(profile, FavoritePage::Driver, source, modal);
     return driver >= 0 && items[driver].active ? FavoritePage::Driver : FavoritePage::Options;
   }
-  const int controls = favoriteItem(FavoritePage::Controls, source, modal);
+  const int controls = favoriteItem(profile, FavoritePage::Controls, source, modal);
   if (controls >= 0 && items[controls].active)
     return pedalCalibration ? FavoritePage::Axes : FavoritePage::Controls;
   return FavoritePage::Options;
 }
 
-static ResolvedShortcuts findMenuShortcuts(ShortcutScreen screen, uintptr_t modal) {
+static ResolvedShortcuts findMenuShortcuts(const LfsBuildProfile &profile,
+                                           ShortcutScreen screen, uintptr_t modal) {
   if (screen == ShortcutScreen::None)
     return {};
   const auto index = std::size_t(screen);
   const auto &menu = shortcutMenus[index];
-  const auto owner = menu.ownerRva ? uintptr_t(imageBase) + menu.ownerRva : modal;
+  const auto ownerRva = resolveProfileRva(profile, menu.ownerRva);
+  const auto owner = ownerRva ? uintptr_t(imageBase) + ownerRva : modal;
   return resolveShortcuts(menu, cfg.shortcuts[index], [&](const ShortcutTarget &target) {
     if (target.favorite != Favorite::None) {
-      const auto page = favoritePage(target.favorite, screen, modal, screen, modal);
-      return favoriteItem(nextFavoritePage(target.favorite, page), screen, modal);
+      const auto page = favoritePage(profile, target.favorite, screen, modal, screen, modal);
+      return favoriteItem(profile, nextFavoritePage(target.favorite, page), screen, modal);
     }
-    return findShortcutItem(target, owner);
+    return findShortcutItem(profile, target, owner);
   });
 }
-static void adjustGarageColour(const Item &item, int direction, float width,
-                               float height) {
-  const auto *native = reinterpret_cast<const NativeItem *>(imageBase + 0x28ca20);
+static void adjustGarageColour(const LfsBuildProfile &profile, const Item &item,
+                               int direction, float width, float height) {
+  if (!profile.buttonTable)
+    return;
+  const auto *native = reinterpret_cast<const NativeItem *>(imageBase + profile.buttonTable);
   const auto &control = native[item.id];
   if (!control.extra || control.extra > 255)
     return;
@@ -2201,13 +2225,15 @@ static bool initialize(IDXGISwapChain *swap) {
   }
   activeSwap = swap;
   loadConfig();
-  if (!nativeOptions::install(imageBase))
+  const auto *profile = activeBuildProfile();
+  if (!profile)
+    log("Native Options registration skipped: unsupported LFS build");
+  else if (!nativeOptions::install(imageBase, *profile))
     log("Native Options registration skipped: unexpected executable instructions");
   if (cfg.autoUpdate)
     startUpdate(false, true);
-  log("LfsPad " LFSPAD_VERSION " active: PID=%lu HWND=%p Direct3D11, native table "
-      "RVA=28ca20",
-      GetCurrentProcessId(), window);
+  log("LfsPad " LFSPAD_VERSION " active: PID=%lu HWND=%p Direct3D11, profile=%s",
+      GetCurrentProcessId(), window, profile ? profile->version : "unsupported");
   return true;
 }
 void frame(IDXGISwapChain *swap) {
@@ -2245,12 +2271,18 @@ void frame(IDXGISwapChain *swap) {
     releaseMouse();
   auto sim = pollSim();
   const auto replay = replayState();
-  const auto modal = *reinterpret_cast<const uintptr_t *>(imageBase + 0x49c298);
+  const auto *profile = activeBuildProfile();
+  const uintptr_t modal = profile && profile->modal
+      ? *reinterpret_cast<const uintptr_t *>(imageBase + profile->modal)
+      : 0;
   const bool wasGarageRoot = garageRoot, wasGarageViewer = garageViewer;
   const bool recoveringGarageFocus = garageSkins || garageModal || wasGarageRoot;
-  const bool raceMenu = gather(modal, sim.known && sim.mode == 3);
-  const bool nativeText = nativeTextEntry(modsText || modal == uintptr_t(imageBase + 0x95ec20),
-                                          sim.known, sim.flags);
+  const bool raceMenu = profile ? gather(*profile, modal, sim.known && sim.mode == 3)
+                                : (clearGatheredState(), false);
+  const bool nativeText = nativeTextEntry(
+      modsText || (profile && profile->nativeTextDialog &&
+                   modal == uintptr_t(imageBase + profile->nativeTextDialog)),
+      sim.known, sim.flags);
   gameTextEntry = nativeText;
   if (garageRoot && !recoveringGarageFocus && !wasGarageViewer)
     garageReturnCallback = 0;
@@ -2284,7 +2316,8 @@ void frame(IDXGISwapChain *swap) {
   overlayTargets = {};
   overlayShield = {};
   const bool safeUpdateMenu = foreground && sim.known && menu && !nativeText &&
-      !(sim.flags & (1 | 2 | 512)) && (mainMenuInitial >= 0 || optionsInitial >= 0);
+      !(sim.flags & (1 | 2 | 512)) &&
+      (profile ? (mainMenuInitial >= 0 || optionsInitial >= 0) : sim.mode == 0);
   pollUpdate(safeUpdateMenu, GetTickCount64());
   const bool updateModal = foreground && menu && !nativeText &&
       ((safeUpdateMenu && (updateView == UpdateView::Offer || updateView == UpdateView::Failed)) ||
@@ -2380,13 +2413,13 @@ void frame(IDXGISwapChain *swap) {
       selected = optionsInitial;
     if (enteredRaceMenu && raceResumeItem >= 0)
       selected = raceResumeItem;
-    if (garageRoot || garageSkins) {
+    if (profile && (garageRoot || garageSkins)) {
       const int entry = garageRoot && wasGarageViewer && garageViewerItem >= 0
-                            ? garageViewerItem : garageEntryFocus();
+                            ? garageViewerItem : garageEntryFocus(*profile);
       if (entry >= 0) {
         selected = entry;
         adjustingSlider = editingGarageColour =
-            keepColour && isGarageColourSlider(items[entry]);
+            keepColour && isGarageColourSlider(*profile, items[entry]);
       }
     }
     for (auto &r : repeat)
@@ -2506,7 +2539,7 @@ void frame(IDXGISwapChain *swap) {
   };
   static SettingsTriggerChord settingsChord;
   static double diagnosticTriggersUntil = 0;
-  const bool settingsChordAllowed = menu && foreground && !contextChanged &&
+  const bool settingsChordAllowed = profile && menu && foreground && !contextChanged &&
       !lostAssignmentFocus && (connected || cfg.diagnostics) && !nativeText && !keyboard &&
       !garageViewer && !adjustingSlider && !cursorDragging && !bindingCapture.active() &&
       !nativeButtonAssignment && !controllerCheckOpen && !profileNaming &&
@@ -2550,9 +2583,10 @@ void frame(IDXGISwapChain *swap) {
     nativeOptions::open();
     openSettingsUntil = 0;
   }
-  const auto shortcutScreen = menu && !nativeText ? findShortcutScreen(modal, raceMenu)
+  const auto shortcutScreen = profile && menu && !nativeText ? findShortcutScreen(*profile, modal, raceMenu)
                                              : ShortcutScreen::None;
-  const auto menuShortcuts = findMenuShortcuts(shortcutScreen, modal);
+  const auto menuShortcuts = profile ? findMenuShortcuts(*profile, shortcutScreen, modal)
+                                     : ResolvedShortcuts{};
   const bool hasMenuShortcuts =
       std::any_of(menuShortcuts.begin(), menuShortcuts.end(),
                   [](const ResolvedShortcut &shortcut) { return shortcut.label != nullptr; });
@@ -2609,11 +2643,11 @@ void frame(IDXGISwapChain *swap) {
                                    replay.confirmedAbsent);
   const bool onTrack = sim.known && sim.mode == 0 &&
                        session != RaceSession::Outside && (sim.flags & 1);
-  const auto clutchPage = settings && clutchSession && (raceMenu || shortcutScreen == ShortcutScreen::Options)
-      ? favoritePage(Favorite::Clutch, shortcutScreen, modal, shortcutScreen, modal)
+  const auto clutchPage = profile && settings && clutchSession && (raceMenu || shortcutScreen == ShortcutScreen::Options)
+      ? favoritePage(*profile, Favorite::Clutch, shortcutScreen, modal, shortcutScreen, modal)
       : FavoritePage::Other;
-  const bool clutchAvailable = clutchPage == FavoritePage::Driver ? nativeClutchItem(modal) >= 0
-      : favoriteItem(nextFavoritePage(Favorite::Clutch, clutchPage), shortcutScreen, modal) >= 0;
+  const bool clutchAvailable = profile && (clutchPage == FavoritePage::Driver ? nativeClutchItem(*profile, modal) >= 0
+      : favoriteItem(*profile, nextFavoritePage(Favorite::Clutch, clutchPage), shortcutScreen, modal) >= 0);
   const bool canTogglePause = onTrack && foreground && !menu &&
                              !(sim.flags & 8) && !menuPressed && !back;
   static PadRecovery recovery;
@@ -2836,12 +2870,12 @@ void frame(IDXGISwapChain *swap) {
         nativeOptions::leave();
       else if (nativeOptions::canOpen())
         nativeOptions::open();
-      else {
+      else if (profile) {
         int options = -1;
         if (shortcutScreen == ShortcutScreen::Main)
-          options = findShortcutItem(shortcutMenu(ShortcutScreen::Main).targets[2], modal);
+          options = findShortcutItem(*profile, shortcutMenu(ShortcutScreen::Main).targets[2], modal);
         else if (shortcutScreen == ShortcutScreen::Race)
-          options = findShortcutItem(shortcutMenu(ShortcutScreen::Race).targets[3], modal);
+          options = findShortcutItem(*profile, shortcutMenu(ShortcutScreen::Race).targets[3], modal);
         if (options >= 0) {
           activate(items[options], width, height);
           openSettingsUntil = time + 1.5;
@@ -3052,14 +3086,14 @@ void frame(IDXGISwapChain *swap) {
             }
           }
         }
-      } else if (favoriteRoute.favorite != Favorite::None) {
+      } else if (profile && favoriteRoute.favorite != Favorite::None) {
         if (back) {
           releaseMouse();
           favoriteRoute.cancel();
         } else {
           const auto favorite = favoriteRoute.favorite;
-          const auto page = favoritePage(favorite, favoriteSource, favoriteOwner, shortcutScreen, modal);
-          const int item = favoriteItem(nextFavoritePage(favorite, page),
+          const auto page = favoritePage(*profile, favorite, favoriteSource, favoriteOwner, shortcutScreen, modal);
+          const int item = favoriteItem(*profile, nextFavoritePage(favorite, page),
                                         favoriteSource, modal);
           bool failed = false;
           const auto action = favoriteRoute.update(page, item >= 0 && !mouseDown, now, failed);
@@ -3075,7 +3109,7 @@ void frame(IDXGISwapChain *swap) {
               log("Favorite stopped at page %u", unsigned(page));
           } else if (favoriteRoute.favorite == Favorite::None) {
             if (favorite == Favorite::Clutch) {
-              const int clutch = nativeClutchItem(modal);
+              const int clutch = nativeClutchItem(*profile, modal);
               if (clutch >= 0)
                 selected = clutch;
               else {
@@ -3134,12 +3168,12 @@ void frame(IDXGISwapChain *swap) {
         stickArmed = false;
         for (auto &directionRepeat : repeat)
           directionRepeat = {};
-      } else if (pendingFavorite != Favorite::None) {
+      } else if (profile && pendingFavorite != Favorite::None) {
         if (back || confirm) {
           if (confirm && !back && !mouseDown) {
-            const auto page = favoritePage(pendingFavorite, favoriteSource, favoriteOwner,
+            const auto page = favoritePage(*profile, pendingFavorite, favoriteSource, favoriteOwner,
                                            shortcutScreen, modal);
-            if (favoriteItem(nextFavoritePage(pendingFavorite, page), favoriteSource, modal) >= 0)
+            if (favoriteItem(*profile, nextFavoritePage(pendingFavorite, page), favoriteSource, modal) >= 0)
               favoriteRoute.begin(pendingFavorite, page, now);
             else {
               failedFavorite = pendingFavorite;
@@ -3231,8 +3265,8 @@ void frame(IDXGISwapChain *swap) {
             }
             for (int i = 2; i < 4; ++i)
               if (nav[i] && !mouseDown && selected >= 0) {
-                if (isGarageColourSlider(items[selected])) {
-                  adjustGarageColour(items[selected], i == 2 ? -1 : 1,
+                if (profile && isGarageColourSlider(*profile, items[selected])) {
+                  adjustGarageColour(*profile, items[selected], i == 2 ? -1 : 1,
                                      width, height);
                   continue;
                 }
@@ -3260,7 +3294,7 @@ void frame(IDXGISwapChain *swap) {
               activate(items[raceFinishItem], width, height);
             else if (confirm && !onFinish && selected >= 0 && !mouseDown &&
                      scrollTarget < 0) {
-              editingGarageColour = isGarageColourSlider(items[selected]);
+              editingGarageColour = profile && isGarageColourSlider(*profile, items[selected]);
               if (items[selected].nativeType == 40 || editingGarageColour)
                 adjustingSlider = true;
               else
@@ -3300,15 +3334,15 @@ void frame(IDXGISwapChain *swap) {
     releaseMouse();
   if (colourDragging && (settings || keyboard || cursorMode || !adjustingSlider))
     releaseMouse();
-  if (mainMenuInitial >= 0 && selected >= 0 && selected < int(items.size())) {
-    const auto *native = reinterpret_cast<const NativeItem *>(imageBase + 0x28ca20);
+  if (profile && profile->buttonTable && mainMenuInitial >= 0 && selected >= 0 && selected < int(items.size())) {
+    const auto *native = reinterpret_cast<const NativeItem *>(imageBase + profile->buttonTable);
     const auto &entry = native[items[selected].id];
     if (entry.owner == modal && entry.type == 9 &&
-        entry.callback == uintptr_t(imageBase) + 0x84750)
+        hasCallback(entry, profile->mainMenuCallback))
       mainMenuSelection = entry.value;
   }
-  if (garageRoot && selected >= 0 && selected < int(items.size())) {
-    const auto *native = reinterpret_cast<const NativeItem *>(imageBase + 0x28ca20);
+  if (profile && profile->buttonTable && garageRoot && selected >= 0 && selected < int(items.size())) {
+    const auto *native = reinterpret_cast<const NativeItem *>(imageBase + profile->buttonTable);
     const auto &n = native[items[selected].id];
     garageReturnCallback = n.callback;
     garageReturnValue = n.value;
@@ -3597,6 +3631,12 @@ void frame(IDXGISwapChain *swap) {
     std::snprintf(hint, sizeof(hint), text("LfsPad InSim bağlantısı bekliyor (%u)", "LfsPad waiting for InSim (%u)"),
                   static_cast<unsigned>(inSimPort()));
     label(20, 20, hint, IM_COL32(255, 210, 90, 255));
+  }
+  if (foreground && menu && !profile && !updateModal && !keyboard) {
+    hudLabel(20, sim.known ? 20.f : 44.f,
+             text("LfsPad: Bu LFS sürümü tam desteklenmiyor (sürüş ve imleç etkin)",
+                  "LfsPad: Unsupported LFS version (driving and cursor active)"),
+             meterWarning);
   }
   if (cfg.diagnostics && ticks++ % 300 == 0)
     log("Frame: flags=%u mode=%u menu=%d raceMenu=%d text=%d items=%zu "

@@ -47,6 +47,12 @@ namespace LfsPadSetup
 
     internal sealed class SetupWindow : Form
     {
+        private static readonly string[] SupportedGameHashes =
+        {
+            "77606E57885FEC33CDDABDFD2271D2F181C65806C2D7EC0049654BD5487D8A52",
+            "B7E3BB23288C907F5060075BCDD9ACCF9B7BB26ED57AD76BBE3A3404DA76E881"
+        };
+
         private enum Page { Welcome, Folder, Working, Finished }
 
         private readonly TextBox folder = new TextBox();
@@ -244,8 +250,8 @@ namespace LfsPadSetup
                         if (!seen.Add(full))
                             continue;
                         using (var exe = File.Open(Path.Combine(full, "LFS.exe"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                            if (BitConverter.ToString(sha.ComputeHash(exe)).Replace("-", "") ==
-                                "77606E57885FEC33CDDABDFD2271D2F181C65806C2D7EC0049654BD5487D8A52")
+                            if (Array.IndexOf(SupportedGameHashes,
+                                    BitConverter.ToString(sha.ComputeHash(exe)).Replace("-", "")) >= 0)
                                 return full;
                     }
                     catch (IOException) { }
@@ -311,7 +317,7 @@ namespace LfsPadSetup
         private void RefreshActions()
         {
             Text = Ui.T("LfsPad Kurulumu", "LfsPad Setup");
-            subtitle.Text = "LfsPad " + Application.ProductVersion + "  •  Live for Speed 0.8C38";
+            subtitle.Text = "LfsPad " + Application.ProductVersion + "  •  Live for Speed 0.8C38 / 0.8C39";
             folder.AccessibleName = folderLabel.Text = Ui.T("Oyun klasörü", "Game folder");
             browse.Text = Ui.T("Göz at…", "Browse…");
             remove.Text = Ui.T("LfsPad’i kaldır…", "Uninstall LfsPad…");
@@ -491,8 +497,9 @@ namespace LfsPadSetup
                         string detail = errors.Result.Trim();
                         if (detail.Contains("Close LFS before"))
                             detail = Ui.T("LFS açık. Oyunu kapatıp tekrar dene.", "Close LFS and try again.");
-                        else if (detail.Contains("Only the verified 0.8C38"))
-                            detail = Ui.T("Bu klasörde farklı bir LFS sürümü var. LFS 0.8C38’in kurulu olduğu klasörü seç.", "Select the folder containing LFS 0.8C38.");
+                        else if (detail.Contains("Only verified LFS builds") ||
+                                 detail.Contains("Only the verified 0.8C38"))
+                            detail = Ui.T("Bu klasörde doğrulanmamış bir LFS sürümü var. Desteklenen bir LFS sürümünün kurulu olduğu klasörü seç.", "Select a folder containing a supported LFS build.");
                         else if (detail.Contains("Invalid InSim port in autoexec.lfs"))
                             detail = Ui.T("autoexec.lfs dosyasındaki InSim portu geçersiz. /insim komutunda 1 ile 65535 arasında bir port kullan.", "The InSim port in autoexec.lfs is invalid. Use a port from 1 to 65535 after /insim.");
                         else if (detail.Contains("Another dxgi.dll is already installed"))

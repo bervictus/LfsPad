@@ -1,6 +1,6 @@
 # LfsPad mimarisi
 
-LfsPad, Windows için 32 bit LFS 0.8C38 ile çalışır. Bu sürümün SHA-256 özeti `77606E57885FEC33CDDABDFD2271D2F181C65806C2D7EC0049654BD5487D8A52`. Aşağıdaki adresler bu dosyanın başlangıcına göre verilmiştir. Başka bir sürümde aynı adresler farklı kodu gösterebilir. Oyun EXE'si ve oyun varlıkları dağıtıma dahil değildir.
+LfsPad, Windows için 32 bit LFS **0.8C38** (`77606E57885FEC33CDDABDFD2271D2F181C65806C2D7EC0049654BD5487D8A52`) ve **0.8C39** (`B7E3BB23288C907F5060075BCDD9ACCF9B7BB26ED57AD76BBE3A3404DA76E881`) sürümlerini doğrulanmış profillerle destekler. Aşağıdaki örnek adresler 0.8C38 baz alınarak listelenmiştir; her iki sürümün RVA eşlemesi `src/lfs_profile.hpp` dosyasında tutulur. Başka bir sürümde aynı adresler farklı kodu gösterebilir. Oyun EXE'si ve oyun varlıkları dağıtıma dahil değildir.
 
 ## Yükleme ve çizim
 
@@ -80,6 +80,7 @@ Türkçe Q klavye Unicode giriş üretir. Metin/parola içeriği kopyalanmaz, ç
 
 ## Dosyalar
 
+`lfs_profile.hpp`: desteklenen LFS sürümlerinin SHA-256 ve RVA profilleri (tanınmayan sürümlerde yerel menü yamaları kapatılır, sürüş özellikleri, R3/RFS imleci ve klavye etkin kalır).
 `core.hpp`: gezinme, sekme/kaydırıcı seçimi, tekrar, ölü bölge, geçiş engeli, eşleme.
 `runtime.cpp` oyun menülerini okur, seçim çerçevesini ve klavyeyi çizer. `native_options.cpp`, LFS 0.8C38’in Seçenekler penceresine LfsPad sayfasını ekler. Sayfanın düğmelerini LFS çizer ve fare tıklamalarını LFS işler. RFS ve diğer kategoriler kendi açılış yollarını kullanır. Mod, beklenen kod adresleri ve talimatlar eşleştiğinde sayfayı kaydeder.
 

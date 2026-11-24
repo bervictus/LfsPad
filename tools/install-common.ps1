@@ -1,3 +1,16 @@
+$script:SupportedGameBuilds = [ordered]@{
+    '0.8C38' = '77606E57885FEC33CDDABDFD2271D2F181C65806C2D7EC0049654BD5487D8A52'
+    '0.8C39' = 'B7E3BB23288C907F5060075BCDD9ACCF9B7BB26ED57AD76BBE3A3404DA76E881'
+}
+
+function Get-SupportedGameBuild([string]$ExePath) {
+    $hash = (Get-FileHash -LiteralPath $ExePath).Hash
+    foreach ($entry in $script:SupportedGameBuilds.GetEnumerator()) {
+        if ($entry.Value -eq $hash) { return $entry.Key }
+    }
+    return $null
+}
+
 function Assert-SafePath([string]$Path, [switch]$Directory) {
     $current=[IO.Path]::GetFullPath($Path)
     $expectDirectory=$Directory.IsPresent

@@ -20,7 +20,7 @@ Kurucu, LFS’nin başlangıç betiğinde ayarlı olan InSim portunu kullanır. 
 
 ## Hangi kontrolcülerle çalışıyor?
 
-Mod **Windows için Live for Speed 0.8C38’in 32 bit sürümüne** göre hazırlandı.
+Mod **Windows için Live for Speed 0.8C38 ve 0.8C39’un 32 bit sürümlerine** göre hazırlandı.
 
 | Kontrolcü | Bağlantı |
 |---|---|

@@ -44,17 +44,17 @@ void log(const char *fmt, ...) {
   std::fputc('\n', f);
   std::fclose(f);
 }
-static bool verifyBuild() {
+static const LfsBuildProfile *detectBuildProfile() {
   wchar_t exe[32768];
   const DWORD length = GetModuleFileNameW(nullptr, exe, _countof(exe));
   if (!length || length >= _countof(exe))
-    return false;
+    return nullptr;
   FILE *f = _wfopen(exe, L"rb");
   if (!f)
-    return false;
+    return nullptr;
   BCRYPT_ALG_HANDLE alg = nullptr;
   BCRYPT_HASH_HANDLE hash = nullptr;
-  unsigned char digest[32]{};
+  std::array<unsigned char, 32> digest{};
   bool ok = BCryptOpenAlgorithmProvider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr,
                                         0) >= 0;
   if (ok)
@@ -67,23 +67,24 @@ static bool verifyBuild() {
     ok = false;
   std::fclose(f);
   if (ok)
-    ok = BCryptFinishHash(hash, digest, 32, 0) >= 0;
+    ok = BCryptFinishHash(hash, digest.data(), ULONG(digest.size()), 0) >= 0;
   if (hash)
     BCryptDestroyHash(hash);
   if (alg)
     BCryptCloseAlgorithmProvider(alg, 0);
-  const unsigned char expected[] = {
-      0x77, 0x60, 0x6E, 0x57, 0x88, 0x5F, 0xEC, 0x33, 0xCD, 0xDA, 0xBD,
-      0xFD, 0x22, 0x71, 0xD2, 0xF1, 0x81, 0xC6, 0x58, 0x06, 0xC2, 0xD7,
-      0xEC, 0x00, 0x49, 0x65, 0x4B, 0xD5, 0x48, 0x7D, 0x8A, 0x52};
-  ok = ok && std::memcmp(expected, digest, 32) == 0;
-  log("0.8C38 SHA256 validation: %s",
-      ok ? "PASS" : "UNSUPPORTED - menu adapter disabled");
-  return ok;
+  const LfsBuildProfile *profile = ok ? findLfsProfile(digest) : nullptr;
+  if (profile)
+    log("LFS build validation: PASS (%s)", profile->version);
+  else
+    log("LFS build validation: UNSUPPORTED - native menu disabled, driving features active");
+  return profile;
+}
+const LfsBuildProfile *activeBuildProfile() {
+  static const LfsBuildProfile *const profile = detectBuildProfile();
+  return profile;
 }
 bool supportedBuild() {
-  static const bool verified = verifyBuild();
-  return verified;
+  return activeBuildProfile() != nullptr;
 }
 
 static bool patch(void **slot, void *value, void **old) {
@@ -738,20 +739,19 @@ static InputFactory inputOriginal = nullptr;
 static HRESULT WINAPI inputHook(HINSTANCE instance, DWORD version, REFIID iid, void **out,
                                 IUnknown *outer) {
   const HRESULT hr = inputOriginal(instance, version, iid, out, outer);
-  if (supportedBuild()) {
-    static const bool graphics = [] {
-      installGraphicsHook();
-      return true;
-    }();
-    (void)graphics;
-    if (SUCCEEDED(hr) && out && *out) {
-      auto table = *reinterpret_cast<void ***>(*out);
-      std::lock_guard<std::mutex> lock(hooksMutex);
-      if (table[3] != (void *)createHook) {
-        inputHooks[table] = {(CreateDevice)table[3], IsEqualGUID(iid, IID_IDirectInput8A) != 0};
-        void *old = nullptr;
-        patch(table + 3, (void *)createHook, &old);
-      }
+  (void)activeBuildProfile();
+  static const bool graphics = [] {
+    installGraphicsHook();
+    return true;
+  }();
+  (void)graphics;
+  if (SUCCEEDED(hr) && out && *out) {
+    auto table = *reinterpret_cast<void ***>(*out);
+    std::lock_guard<std::mutex> lock(hooksMutex);
+    if (table[3] != (void *)createHook) {
+      inputHooks[table] = {(CreateDevice)table[3], IsEqualGUID(iid, IID_IDirectInput8A) != 0};
+      void *old = nullptr;
+      patch(table + 3, (void *)createHook, &old);
     }
   }
   return hr;
@@ -830,7 +830,7 @@ static Bind bindOriginal = nullptr;
 static int WSAAPI localInSimBind(SOCKET fd, const sockaddr *address, int size) {
   if (address && size >= int(sizeof(sockaddr_in)) && address->sa_family == AF_INET) {
     const auto &requested = *reinterpret_cast<const sockaddr_in *>(address);
-    if (requested.sin_port == htons(inSimPort()) && supportedBuild()) {
+    if (requested.sin_port == htons(inSimPort())) {
       static const bool localOnly = GetPrivateProfileIntW(
           L"General", L"AllowRemoteInSim", 0, path(L"LfsPad.ini").c_str()) != 1;
       if (!localOnly)
@@ -859,17 +859,26 @@ static void installNetworkHooks() {
     auto addresses = reinterpret_cast<IMAGE_THUNK_DATA *>(base + imp->FirstThunk);
     bool observedSend = false, observedSendTo = false;
     for (; names->u1.AddressOfData; ++names, ++addresses) {
-      // The verified executable imports Winsock send and sendto by ordinal.
-      if (!IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal))
-        continue;
-      const auto ordinal = IMAGE_ORDINAL(names->u1.Ordinal);
       auto slot = reinterpret_cast<void **>(&addresses->u1.Function);
-      if (ordinal == 19)
-        observedSend = patch(slot, reinterpret_cast<void *>(outSimSendConnected),
-                             reinterpret_cast<void **>(&sendOriginal));
-      else if (ordinal == 20)
-        observedSendTo = patch(slot, reinterpret_cast<void *>(outSimSend),
-                               reinterpret_cast<void **>(&sendToOriginal));
+      const bool byOrdinal = IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal);
+      if (byOrdinal) {
+        const auto ordinal = IMAGE_ORDINAL(names->u1.Ordinal);
+        if (ordinal == 19)
+          observedSend = patch(slot, reinterpret_cast<void *>(outSimSendConnected),
+                               reinterpret_cast<void **>(&sendOriginal));
+        else if (ordinal == 20)
+          observedSendTo = patch(slot, reinterpret_cast<void *>(outSimSend),
+                                 reinterpret_cast<void **>(&sendToOriginal));
+      } else {
+        auto name = reinterpret_cast<const IMAGE_IMPORT_BY_NAME *>(base + names->u1.AddressOfData);
+        const auto importName = reinterpret_cast<const char *>(name->Name);
+        if (std::strcmp(importName, "send") == 0)
+          observedSend = patch(slot, reinterpret_cast<void *>(outSimSendConnected),
+                               reinterpret_cast<void **>(&sendOriginal));
+        else if (std::strcmp(importName, "sendto") == 0)
+          observedSendTo = patch(slot, reinterpret_cast<void *>(outSimSend),
+                                 reinterpret_cast<void **>(&sendToOriginal));
+      }
     }
     log("OutSim observer: send=%d sendto=%d", observedSend, observedSendTo);
     return;
@@ -894,7 +903,8 @@ static HRESULT STDMETHODCALLTYPE swapHook(IDXGIFactory *f, IUnknown *d,
 }
 static HRESULT createGameFactory(Factory factory, REFIID iid, void **out) {
   const HRESULT hr = factory(iid, out);
-  if (supportedBuild() && SUCCEEDED(hr) && out && *out && IsEqualGUID(iid, __uuidof(IDXGIFactory1))) {
+  if (SUCCEEDED(hr) && out && *out && IsEqualGUID(iid, __uuidof(IDXGIFactory1))) {
+    (void)activeBuildProfile();
     static std::once_flag networkHooks;
     std::call_once(networkHooks, [] {
       processCompatibility();
@@ -934,7 +944,10 @@ static void bootstrap() {
       const bool ordinal = IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal);
       // LFS can start InSim from the command line before it creates DXGI.
       // Check the executable and INI in the callback, outside the loader lock.
-      if (winsock && ordinal && IMAGE_ORDINAL(names->u1.Ordinal) == 2) {
+      if (winsock && ((ordinal && IMAGE_ORDINAL(names->u1.Ordinal) == 2) ||
+                      (!ordinal && std::strcmp(reinterpret_cast<const char *>(
+                          reinterpret_cast<const IMAGE_IMPORT_BY_NAME *>(
+                              base + names->u1.AddressOfData)->Name), "bind") == 0))) {
         patch(slot, reinterpret_cast<void *>(localInSimBind),
               reinterpret_cast<void **>(&bindOriginal));
         break;
